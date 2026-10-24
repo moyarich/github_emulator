@@ -1,0 +1,12 @@
+name: Issue dependencies · Show tree
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  show-tree:
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_show-issue-dependency-tree.yml@main

@@ -1,0 +1,31 @@
+name: Issue dependencies · Set blockers
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number or URL
+        type: string
+        required: true
+      related_issues:
+        description: Blocking issue numbers or URLs, comma-separated
+        type: string
+        required: true
+      dry_run:
+        description: Preview without changing issues
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  set:
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_manage-issue-dependencies.yml@main
+    with:
+      issue: ${{ inputs.issue }}
+      related_issues: ${{ inputs.related_issues }}
+      relationship: blocked-by
+      action: add
+      dry_run: ${{ inputs.dry_run }}

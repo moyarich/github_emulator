@@ -1,0 +1,38 @@
+name: Delete release and tag
+
+run-name: >-
+  Delete release and tag · ${{ inputs.tag }} · dry-run=${{ inputs.dry-run }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact release tag or fuzzy search text
+        required: true
+        type: string
+      dry-run:
+        description: Preview release and tag cleanup without deleting
+        required: true
+        default: true
+        type: boolean
+
+permissions: {}
+
+jobs:
+  dispatch-input-summary:
+    name: "job: Workflow parameters"
+    permissions:
+      contents: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_dispatch-input-summary.yml@main
+    with:
+      parameters-json: ${{ toJSON(inputs) }}
+      heading: "delete-release-tag · Dispatch parameters"
+
+  delete-release-tag:
+    needs: dispatch-input-summary
+    permissions:
+      contents: write
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_delete-release-tag.yml@main
+    with:
+      tag: ${{ inputs.tag }}
+      dry-run: ${{ inputs.dry-run }}

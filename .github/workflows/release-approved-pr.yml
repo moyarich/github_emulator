@@ -1,0 +1,27 @@
+name: Release approved preparation PR
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  approved-release:
+    name: Verify, release and publish approved packages
+    if: ${{ github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'release/prepare-') }}
+    permissions:
+      contents: write
+      packages: write
+      checks: read
+      actions: write
+      statuses: read
+      pull-requests: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_approved-release.yml@main
+    with:
+      expected-base: main
+      required-workflows: .github/workflows/ci.yml
+      dry-run: true
+    secrets:
+      npm-token: ${{ secrets._NPM_TOKEN }}

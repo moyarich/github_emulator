@@ -1,0 +1,38 @@
+name: Prepare Release PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Publishable workspace package or all
+        type: string
+        required: true
+        default: all
+      version-bump:
+        description: Version bump
+        type: choice
+        options: [package-json, patch, minor, major]
+        required: true
+        default: package-json
+      dry-run:
+        description: Preview without opening a PR
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_prepare-release-pr.yml@main
+    with:
+      package: ${{ inputs.package }}
+      version-bump: ${{ inputs.version-bump }}
+      target-branch: main
+      dry-run: ${{ inputs.dry-run }}
+    secrets:
+      workflow-token: ${{ secrets._WORKFLOW_TOKEN }}

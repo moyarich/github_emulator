@@ -1,0 +1,76 @@
+name: Check distribution
+
+run-name: >-
+  Check dist · ${{ inputs.package }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: all, package directory, or package name
+        type: string
+        required: true
+        default: all
+      config-path:
+        description: Repository-local YAML distribution configuration path
+        type: string
+        default: .github/check-dist-config.yml
+      dist-path:
+        description: "Distribution path template. Supports {packageDir}, {package}, {packageName}, {workspace}; blank uses repository configuration or {packageDir}/dist."
+        type: string
+        default: ""
+      build-command:
+        description: Build command override (for example npm run build:cli); 
+          empty uses the selected workspace build
+        type: string
+        default: ""
+      install-command:
+        description: Dependency install command
+        type: string
+        default: npm ci --ignore-scripts
+      dry-run:
+        description: Upload rebuilt artifacts, without committing or pushing
+        type: boolean
+        default: true
+      commit:
+        description: Commit updated output only when dry-run is false (single package only)
+        type: boolean
+        default: false
+      node-caching:
+        description: Node cache mode (npm or empty to disable)
+        type: string
+        default: npm
+      include-root-package:
+        description: Include buildable root package in discovery
+        type: boolean
+        default: true
+      workspace-tools-source:
+        description: Workspace Tools CLI source for discovery
+        type: choice
+        required: true
+        default: auto
+        options:
+          - auto
+          - checkout:current
+          - checkout:upstream;branch:main
+          - registry:npm:latest
+
+permissions: {}
+
+
+jobs:
+  check-dist:
+    permissions:
+      contents: write
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_self-heal-check-dist.yml@main
+    with:
+      package: ${{ inputs.package }}
+      config-path: ${{ inputs.config-path }}
+      dist-path: ${{ inputs.dist-path }}
+      build-command: ${{ inputs.build-command }}
+      install-command: ${{ inputs.install-command }}
+      dry-run: ${{ inputs.dry-run }}
+      commit: ${{ inputs.commit }}
+      node-caching: ${{ inputs.node-caching }}
+      include-root-package: ${{ inputs.include-root-package }}
+      workspace-tools-source: ${{ inputs.workspace-tools-source }}

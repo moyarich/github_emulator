@@ -1,0 +1,56 @@
+name: Reset Release
+
+run-name: >-
+  Reset release · ${{ inputs.package }} · dry-run=${{ inputs.dry-run }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Select a publishable workspace package
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - packages/example
+      target-branch:
+        description: Release target branch
+        required: true
+        default: main
+        type: string
+      match-mode:
+        description: Find release by package version or exact tag
+        required: true
+        default: package-json
+        type: choice
+        options:
+          - package-json
+          - exact
+      exact-tag:
+        description: Existing canonical release tag when match-mode is exact
+        required: false
+        default: ""
+        type: string
+      dry-run:
+        description: Preview the reset without mutating the release or tag
+        required: true
+        default: true
+        type: boolean
+
+permissions: {}
+
+jobs:
+  reset:
+    permissions:
+      actions: read
+      contents: write
+      packages: read
+      pull-requests: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_bulk-reset-release.yml@main
+    with:
+      package: ${{ inputs.package }}
+      target-branch: ${{ inputs.target-branch }}
+      match-mode: ${{ inputs.match-mode }}
+      exact-tag: ${{ inputs.exact-tag }}
+      dry-run: ${{ inputs.dry-run }}

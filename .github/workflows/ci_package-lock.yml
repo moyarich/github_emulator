@@ -1,0 +1,42 @@
+name: CI / package-lock
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "packages/**/package.json"
+      - "apps/**/package.json"
+      - ".npmrc"
+      - ".github/workflows/ci_package-lock.yml"
+  pull_request:
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "packages/**/package.json"
+      - "apps/**/package.json"
+      - ".npmrc"
+      - ".github/workflows/ci_package-lock.yml"
+  workflow_dispatch:
+    inputs:
+      repair:
+        description: Repair and commit package-lock.json drift
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.repository }}-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  lockfile:
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_self-heal_package-lock.yml@main
+    with:
+      mode: ${{ ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || (github.event_name == 'workflow_dispatch' && !inputs.repair)) && 'check' || 'fix' }}
+      commit: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'workflow_dispatch' || inputs.repair) }}
+

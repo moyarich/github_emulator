@@ -1,0 +1,51 @@
+name: Inventory reusable workflow consumers
+on:
+  workflow_dispatch:
+    inputs:
+      include-private:
+        description: Include private repository names in the committed document (visible to anyone who can read this repository)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: inventory-workflow-consumers
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Discover consumers and write Markdown inventory
+        env:
+          GH_TOKEN: ${{ secrets._WORKFLOW_TOKEN }}
+          REPOSITORY_OWNER: moyarich
+          INCLUDE_PRIVATE: ${{ inputs.include-private }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::_WORKFLOW_TOKEN must have read access to the owner's repositories, including private repositories."
+            exit 1
+          fi
+          node scripts/inventory-workflow-consumers.mjs
+      - name: Commit updated inventory
+        env:
+          GH_TOKEN: ${{ secrets._WORKFLOW_TOKEN }}
+        run: |
+          set -euo pipefail
+          git add docs/workflow-consumers.md
+          if git diff --cached --quiet; then
+            echo "Inventory is already current." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: refresh reusable workflow consumers"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${GITHUB_REF_NAME}"

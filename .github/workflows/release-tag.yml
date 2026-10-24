@@ -1,0 +1,78 @@
+name: Release tag management
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Promote a stable major alias or restore an exact canonical release tag
+        type: choice
+        required: true
+        default: promote
+        options:
+          - promote
+          - restore
+      source-tag:
+        description: Published stable version tag for promote mode
+        type: string
+        default: ""
+      tag:
+        description: Canonical tag for restore mode
+        type: string
+        default: ""
+      commit:
+        description: Exact 40-character commit SHA for restore mode
+        type: string
+        default: ""
+      target-branch:
+        description: Branch to verify for restore mode
+        type: string
+        default: main
+      require-branch-head:
+        description: Require target branch HEAD to match the restore commit
+        type: boolean
+        default: false
+      dry-run:
+        description: Preview tag changes without writing refs
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  release-tag:
+    name: Manage release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Validate selected operation
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          SOURCE_TAG: ${{ inputs.source-tag }}
+          TAG: ${{ inputs.tag }}
+          COMMIT_SHA: ${{ inputs.commit }}
+        run: |
+          set -euo pipefail
+          if [[ "$MODE" == "promote" ]]; then
+            test -n "$SOURCE_TAG" || { echo "::error::source-tag is required to promote"; exit 1; }
+          else
+            test -n "$TAG" && [[ "$COMMIT_SHA" =~ ^[[:xdigit:]]{40}$ ]] || {
+              echo "::error::restore requires a tag and an exact 40-character commit SHA"
+              exit 1
+            }
+          fi
+
+      - name: Manage release tag
+        uses: moyarich/reusable-workflows/actions/release-tag@main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          mode: ${{ inputs.mode }}
+          source-tag: ${{ inputs.source-tag }}
+          tag: ${{ inputs.tag }}
+          commit: ${{ inputs.commit }}
+          target-branch: ${{ inputs.target-branch }}
+          require-branch-head: ${{ inputs.require-branch-head }}
+          dry-run: ${{ inputs.dry-run }}
