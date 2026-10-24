@@ -1,0 +1,69 @@
+---
+title: Local CLI
+label: Local CLI
+description: Run the emulator directly and use its shell command options.
+---
+
+# Run without Docker.
+
+The local scripts live inside `packages/emulate-github`. Root `scripts/` files are convenience wrappers. Install Node.js 24+, Bash, curl, jq, and base64, then install dependencies with `npm ci` from the monorepo root.
+
+## Start a foreground server
+
+```sh
+bash scripts/start-emulator.sh start \
+  --host 127.0.0.1 \
+  --port 4010 \
+  --repo moyarich/demo
+```
+
+Ctrl+C stops the server. Open a second terminal for API commands. These local scripts do not start the Docker HTTPS proxy.
+
+## Help and configuration
+
+```sh
+bash scripts/start-emulator.sh --help
+bash scripts/github_emulator.sh config --new-version 2.0.0
+bash scripts/github_emulator.sh docs
+```
+
+Help and configuration do not start a server or change a repository. Configuration output hides the token. Flags override environment values for a single invocation; missing or invalid values fail before work begins.
+
+## Interactive menus
+
+```sh
+bash scripts/start-emulator.sh menu
+bash scripts/github_emulator.sh menu
+```
+
+Menus require fzf and an interactive terminal. With no arguments, the scripts open fzf when available or display help. Use explicit `start` or `test` commands for automation.
+
+## Local smoke test
+
+```sh
+bash scripts/github_emulator.sh test \
+  --port 4011 \
+  --new-version 2.0.0 \
+  --update-pr-body
+```
+
+The test reuses an existing matching server or starts its own. It changes the selected repository. A server started by the test is stopped on completion unless `--keep-emulator` is set. Sourcing the scripts only defines their entry functions; invocation settings and traps are isolated in a subshell.
+
+## Native Portless HTTPS
+
+The local package includes Portless as development tooling. Start its proxy once, then use the emulator's native integration:
+
+```sh
+npm run portless:proxy --workspace=@moya/emulate-github
+npm run start:portless --workspace=@moya/emulate-github
+```
+
+`emulate --portless` registers `https://github.emulate.localhost` and removes its alias when it stops. Portless handles the certificate and proxy. Its first setup can require sudo and certificate trust; run it from an interactive terminal. It does not silently bootstrap trust during CI. Use the package script so its installed Portless binary is on PATH.
+
+With Portless already available on PATH, the equivalent CLI command is:
+
+```sh
+bash scripts/start-emulator.sh start --portless
+```
+
+This integration is for the native local server. The Docker shell's existing Caddy HTTPS route and the GitHub Action's runner-local HTTP endpoint remain independently configured. Portless provides a local URL; it does not redirect hardcoded real GitHub clients. See [emulate's Portless integration](https://github.com/vercel-labs/emulate#https-with-portless).

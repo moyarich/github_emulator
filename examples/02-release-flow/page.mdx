@@ -1,0 +1,70 @@
+---
+title: Release pull request
+label: Release pull request
+description: Run the release scenario and use the Docker image in GitHub Actions.
+---
+
+# Test a release pull request.
+
+The smoke test creates an isolated emulator, seeds a repository, changes a package version, opens a PR, merges it, and verifies the merged manifest. It exits when verification finishes.
+
+## Run the scenario
+
+<CodeGroup label="Run the release smoke test">
+<CodeTab label="Defaults">
+
+```sh
+npm run docker:test
+```
+
+</CodeTab>
+<CodeTab label="Custom version">
+
+```sh
+NEW_VERSION=2.0.0 UPDATE_PR_BODY=1 npm run docker:test
+```
+
+</CodeTab>
+</CodeGroup>
+
+The smoke-test container is separate from the persistent emulator. A successful run exits with code 0. Commits are made before opening the PR because the pinned emulator snapshots the head commit when it creates the PR.
+
+## Use as a GitHub Action
+
+Run the test on a Linux runner with Docker:
+
+```yaml
+jobs:
+  release-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: moyarich/github_emulator@main
+        with:
+          mode: smoke-test
+          new-version: 2.0.0
+          update-pr-body: "1"
+```
+
+Pin a commit SHA for a reproducible workflow. The action builds from its own source directory, so it does not require your repository's files.
+
+## Keep a server for later steps
+
+```yaml
+steps:
+  - uses: moyarich/github_emulator@main
+    id: emulator
+    with:
+      mode: server
+  - name: Query emulator
+    env:
+      API: ${{ steps.emulator.outputs.api-url }}
+      GH_TOKEN: local-test-token
+    run: gh api "$API/repos/moyarich/release-smoke-test"
+  - name: Clean up
+    if: always() && steps.emulator.outputs.container-id != ''
+    env:
+      CONTAINER_ID: ${{ steps.emulator.outputs.container-id }}
+    run: docker rm --force "$CONTAINER_ID"
+```
+
+The server URL is local to the runner host and the same job. The action now removes server containers automatically in its post-job step; the explicit cleanup shown above is optional. Smoke-test mode removes its own container. See the GitHub Action guide for client configuration and custom fixtures.

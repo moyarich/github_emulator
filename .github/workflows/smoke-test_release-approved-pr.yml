@@ -25,4 +25,5 @@ jobs:
       - name: Run Docker smoke-test action
         uses: ./
         with:
+          mode: smoke-test
           update-pr-body: '1'

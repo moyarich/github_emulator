@@ -14,7 +14,7 @@ on:
         default: all
         options:
           - all
-          - packages/example
+          - packages/emulate-github
       target-branch:
         description: Branch used to resolve the package path and changelog
         required: true

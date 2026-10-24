@@ -1,0 +1,122 @@
+[data-moyaforge-code-block] {
+  --_code-background: var(--code-block-background, var(--_mf-soft, #f6f6f7));
+  --_code-color: var(--code-block-color, var(--_mf-text, #303038));
+  --_code-muted: var(--code-block-muted-color, var(--_mf-muted, #73737c));
+  --_code-border: var(--code-block-border-color, transparent);
+  --_code-radius: var(--code-block-border-radius, 8px);
+  --_code-padding: var(--code-block-padding, 24px);
+  --_code-font-size: var(--code-block-font-size, 14px);
+  --_code-line-height: var(--code-block-line-height, 1.7);
+  --_code-margin: var(--code-block-margin, 20px 0);
+}
+[data-moyaforge-code-block],
+[data-moyaforge-code-group] {
+  position: relative;
+  min-width: 0;
+  margin: var(--_code-margin);
+  overflow: hidden;
+  border: 1px solid var(--_code-border);
+  border-radius: var(--_code-radius);
+  background: var(--_code-background);
+  color: var(--_code-color);
+}
+div[data-moyaforge-code-block] > pre,
+[data-moyaforge-code-group] [data-moyaforge-code-panel] pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: var(--_code-padding);
+  overflow: auto;
+  font-size: var(--_code-font-size);
+  line-height: var(--_code-line-height);
+  background: var(--_code-background) !important;
+  color: var(--_code-color);
+}
+div[data-moyaforge-code-block] > pre code,
+[data-moyaforge-code-group] [data-moyaforge-code-panel] pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+[data-moyaforge-code-language] {
+  --_code-language-size: var(--code-block-language-font-size, 12px);
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  color: var(--_code-muted);
+  font-size: var(--_code-language-size);
+  line-height: 1;
+  pointer-events: none;
+}
+.mf-code-copy[data-moyaforge-copy-button] {
+  --_copy-button-color: var(--copy-button-color, var(--_code-muted));
+  --_copy-button-background: var(
+    --copy-button-background,
+    var(--_code-background)
+  );
+  --_copy-button-border-color: var(
+    --copy-button-border-color,
+    var(--_mf-line, #dedee3)
+  );
+  --_copy-button-border-radius: var(--copy-button-border-radius, 4px);
+  --_copy-button-padding: var(--copy-button-padding, 10px);
+  --_copy-button-hover-color: var(
+    --copy-button-hover-color,
+    var(--_code-color)
+  );
+  --_copy-button-font-size: var(--copy-button-font-size, 11px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  border: 1px solid var(--_copy-button-border-color);
+  border-radius: var(--_copy-button-border-radius);
+  padding: var(--_copy-button-padding);
+  background: var(--_copy-button-background);
+  color: var(--_copy-button-color);
+  font: inherit;
+  font-size: var(--_copy-button-font-size);
+  line-height: 1.5;
+  cursor: pointer;
+}
+.mf-code-copy[data-copy-status="idle"] span {
+  display: none;
+}
+.mf-code-copy:hover {
+  color: var(--_copy-button-hover-color);
+  border-color: currentColor;
+}
+[data-moyaforge-code-block] > .mf-code-copy {
+  position: absolute;
+  z-index: 1;
+  top: 12px;
+  right: 12px;
+  opacity: 0;
+}
+[data-moyaforge-code-block]:hover > .mf-code-copy,
+[data-moyaforge-code-block]:focus-within > .mf-code-copy {
+  opacity: 1;
+}
+[data-moyaforge-code-block]:hover > [data-moyaforge-code-language],
+[data-moyaforge-code-block]:focus-within > [data-moyaforge-code-language] {
+  opacity: 0;
+}
+@media (hover: none) {
+  [data-moyaforge-code-block] > .mf-code-copy {
+    opacity: 1;
+  }
+  [data-moyaforge-code-language] {
+    right: 54px;
+  }
+}
+/* Keep the component surface override above Shiki's inline and dark-theme backgrounds. */
+.mf-docs .mf-article div[data-moyaforge-code-block] > pre.shiki,
+.mf-docs
+  .mf-article
+  [data-moyaforge-code-group]
+  [data-moyaforge-code-panel]
+  pre.shiki {
+  background: var(--_code-background) !important;
+}

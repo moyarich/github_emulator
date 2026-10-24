@@ -1,0 +1,55 @@
+name: Prepare Marketplace action release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version tag for the Marketplace action (for example v1.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check generated Marketplace distribution
+        run: node packages/actions/scripts/build.mjs --check
+      - name: Verify Docker action smoke test
+        uses: ./
+        with:
+          mode: smoke-test
+      - name: Create draft release for Marketplace review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Use a version like v1.0.0' >&2; exit 2; }
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists; update it explicitly in GitHub." >&2
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/action-release-notes.md" <<'NOTES'
+          ## MoyaRich GitHub Emulator
+
+          Start a local GitHub API for workflow tests with automatic post-job cleanup.
+          The action exposes api-url, token, repository, and container-id outputs.
+          Configure workflow clients to use the local API URL and test token.
+
+          This release is a draft. Review the generated root action.yml and select
+          Publish this Action to GitHub Marketplace when publishing in GitHub.
+          NOTES
+          gh release create "$VERSION" --draft --target "$RELEASE_SHA" \
+            --title "MoyaRich GitHub Emulator $VERSION" \
+            --notes-file "$RUNNER_TEMP/action-release-notes.md"

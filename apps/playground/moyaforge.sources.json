@@ -1,0 +1,5 @@
+{
+  "repository": "https://github.com/moyarich/moyaforge.git",
+  "revision": "ddd43a0e1789531cb6ac916b67e265ae919e0ef7",
+  "packages": ["moyaforge-mdx", "moyaforge-cli"]
+}

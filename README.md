@@ -7,7 +7,7 @@ Official documentation: [GitHub emulator guide](https://emulate.dev/docs/github)
 From the project root:
 
 ```sh
-docker compose up --build -d --wait
+npm run docker:up
 ```
 
 The API stays available at **http://localhost:4001** until you stop it. The container uses `catthehacker/ubuntu:act-latest`, checks Node.js 24+ and npm, and installs the tools and locked dependencies it needs.
@@ -31,17 +31,17 @@ Use `http://host.docker.internal:4001` from other Docker containers on your Mac,
 This provides the emulated GitHub API, rather than the github.com website.
 
 ```sh
-docker compose logs -f       # View server output
-docker compose down          # Stop the server
+npm run docker:logs          # View server output
+npm run docker:down          # Stop the server
 ```
 
 State is in memory and resets when the server process restarts. To use another host port:
 
 ```sh
-EMULATOR_PORT=4010 docker compose up -d --wait
+EMULATOR_PORT=4010 npm run docker:up
 ```
 
-The `environment` section in `compose.yaml` defines networking, repository, token, base branch, manifest path, initial version, and smoke-test settings. Edit defaults there or override the interpolated values through your shell or a root `.env` file. Leave `RELEASE_BRANCH` empty to generate a fresh name for each test.
+The `environment` section in `packages/emulate-github/compose.yaml` defines networking, repository, token, base branch, manifest path, initial version, and smoke-test settings. Edit defaults there or override the interpolated values through your shell or a `packages/emulate-github/.env` file. Leave `RELEASE_BRANCH` empty to generate a fresh name for each test.
 
 ## Interactive shell
 
@@ -97,7 +97,7 @@ Then, in a dedicated Mac terminal:
 export GH_HOST=github.emulator.test:8443
 export GH_ENTERPRISE_TOKEN=local-test-token
 # Run from the monorepo root; this path must be absolute.
-export SSL_CERT_FILE="$PWD/.local/emulator-ca.crt"
+export SSL_CERT_FILE="$PWD/packages/emulate-github/.local/emulator-ca.crt"
 gh api repos/moyarich/release-smoke-test
 ```
 
@@ -212,7 +212,7 @@ npm run docker:test
 To exercise PR description updates and a different version:
 
 ```sh
-UPDATE_PR_BODY=1 NEW_VERSION=2.0.0 docker compose run --rm smoke-test
+UPDATE_PR_BODY=1 NEW_VERSION=2.0.0 npm run docker:test
 ```
 
 The pinned emulator snapshots the PR head when it opens, so the test commits the version bump before creating the PR.
@@ -234,24 +234,30 @@ Its optional `RUN_ACT=1` step requires act installed on the host and `WORKFLOW_F
 
 ## GitHub Actions
 
-`.github/workflows/release-approved-pr.yml` runs the disposable Docker smoke test after a PR merges or when started manually. It does not publish packages or create real releases.
+`.github/workflows/smoke-test_release-approved-pr.yml` runs the disposable Docker smoke test after a PR merges or when started manually. It does not publish packages or create real releases.
 
 ## Project layout
 
 ```text
 package.json
 package-lock.json
-compose.yaml
-.github/workflows/release-approved-pr.yml
-docker/
-  Dockerfile                    # Docker server and smoke-test runtimes
-  proxy/                        # HTTPS proxy image and Caddy config
-scripts/                        # Local shell code only; excluded from Docker
-  start-emulator.sh
-  github_emulator.sh
-  cli-common.sh
-docs/cli.md
-packages/emulate-github/package.json
+action.yml                      # Generated Marketplace metadata
+dist/github-emulator/           # Generated, tracked action runtime
+.github/workflows/
+apps/playground/
+scripts/                        # Local wrappers delegating into the package
+docs/cli.md                     # Link to package CLI guide
+packages/actions/               # Canonical action metadata, runtime, generator
+packages/emulate-github/
+  package.json
+  compose.yaml
+  docker/                       # Self-contained image dependencies and runtimes
+    Dockerfile
+    package.json
+    package-lock.json
+    proxy/
+  scripts/                      # Local CLI implementation; excluded from Docker
+  docs/cli.md
 ```
 
 ## Workspace commands
@@ -269,17 +275,30 @@ Treat this directory as the monorepo root. Install dependencies here with `npm c
 | `npm run docker:shell`  | Open an interactive container shell with gh authentication |
 | `npm run docker:test`   | Run disposable smoke tests in Docker                       |
 
-For a specific package, use `npm run test --workspace=@moya/emulate-github`. Add future packages under `packages/` with their own private package manifests; keep shared Docker and GitHub Actions configuration at the root.
+For a specific package, use `npm run test --workspace=@moya/emulate-github`. Add future packages under `packages/` with their own private package manifests; keep emulator resources inside its package and shared GitHub Actions at the root.
 
 ## Docker build stages
 
-`docker/Dockerfile` separates shared tools (`tools`), locked workspace dependencies (`dependencies`), disposable tests (`smoke-test`), and the persistent API (`server`). Compose selects the server target by default; `npm run docker:test` selects the separate test service.
+Root `npm run docker:*` commands delegate to the package. From `packages/emulate-github`, the same commands work directly. Without host Node/npm, use `docker compose -f packages/emulate-github/compose.yaml up --build -d --wait` from the monorepo root, or run `docker compose up --build -d --wait` inside the package.
+
+`packages/emulate-github/docker/Dockerfile` separates shared tools (`tools`), locked Docker dependencies (`dependencies`), disposable tests (`smoke-test`), and the persistent API (`server`). Compose selects the server target by default; `npm run docker:test` selects the separate test service.
 
 The server's startup, seed creation, readiness checks, logs, and shutdown handling are defined in the Dockerfile and generated into `/usr/local/bin/start-github-emulator` at build time. The server image does not copy or invoke the local `.sh` files. Those remain in `scripts/` for `npm start` / `npm run test:emulator` on the host, and are excluded from the Docker build context. The smoke-test target also defines its own implementation in the Dockerfile. Keep the local and Docker startup behavior aligned when changing seed or logging behavior.
 
+Docker builds are self-contained in `packages/emulate-github/docker/`: `package.json` pins `emulate`, `package-lock.json` pins its dependency tree, and the image installs them with `npm ci --omit=dev`. Compose and the GitHub Action both use `packages/emulate-github/docker/` as the build context. No root manifest, workspace files, or local scripts are copied into the image.
+
+Build either target directly:
+
+```sh
+docker build --target server -t github-emulator ./packages/emulate-github/docker
+docker build --target smoke-test -t github-emulator-test ./packages/emulate-github/docker
+```
+
 ## Local script help and menus
 
-Both local entry points support `--help`, `docs`, `config`, and an optional `fzf` menu. See [the CLI guide](docs/cli.md) for settings and examples.
+The implementation and CLI guide are owned by `packages/emulate-github`; root `scripts/` files are local convenience wrappers that delegate into the package. The package resolves its declared dependencies through Node and does not reference root scripts, docs, or `node_modules` paths.
+
+Both local entry points support `--help`, `docs`, `config`, and an optional `fzf` menu. See [the CLI guide](packages/emulate-github/docs/cli.md) for settings and examples.
 
 ```sh
 bash scripts/start-emulator.sh --help
@@ -291,87 +310,90 @@ No arguments opens the fzf menu in an interactive terminal when available; other
 
 ## Use as a GitHub Action
 
-The root `action.yml` packages the Docker image as a reusable composite action. It builds the selected Dockerfile target and runs it on a Linux runner with Docker. No host Node/npm, act, GitHub credentials, or HTTPS proxy is needed for these tests. It uses only the local test token and a disposable seeded repository.
-
-In this repository, after checkout:
-
-```yaml
-steps:
-  - uses: actions/checkout@v4
-  - name: Run the Docker release test
-    uses: ./
-    with:
-      mode: smoke-test
-      new-version: 2.0.0
-      update-pr-body: "1"
-```
-
-To keep the API running for subsequent steps:
+The default action starts a local GitHub API for later workflow steps and automatically removes its container in a post-job step. Configure your workflow clients to use its outputs instead of real GitHub endpoints:
 
 ```yaml
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - name: Start local GitHub API
+      - uses: moyarich/github_emulator@main
         id: emulator
-        uses: ./
-        with:
-          mode: server
-      - name: Query emulator
+      - name: Exercise GitHub-dependent workflow logic
         env:
           API: ${{ steps.emulator.outputs.api-url }}
-          GH_TOKEN: local-test-token
-        run: gh api "$API/repos/moyarich/release-smoke-test"
-      - name: Clean up
-        if: always() && steps.emulator.outputs.container-id != ''
-        env:
-          CONTAINER_ID: ${{ steps.emulator.outputs.container-id }}
-        run: docker rm --force "$CONTAINER_ID"
+          GH_TOKEN: ${{ steps.emulator.outputs.token }}
+          REPO: ${{ steps.emulator.outputs.repository }}
+        run: gh api "$API/repos/$REPO"
 ```
 
-Server mode binds a randomly assigned loopback port to avoid collisions. The `api-url` output is reachable from runner-host steps in the same job; it is not a public URL or automatically reachable from another container/job. The action seeds package version `old-version` and leaves the server running until your cleanup step. Smoke-test mode runs and exits, removing its container automatically. Failed server startup also removes its container.
+Pin a released version or commit SHA when consuming the action. The default `repository` input seeds a fixture using the caller repository's name; it does not clone or modify real repository state. `seed-file` can supply a caller-owned YAML/JSON fixture. Server outputs are `api-url`, `token`, `repository`, and `container-id`. Optional exported variables are `GH_EMULATOR_API_URL` and `GH_EMULATOR_TOKEN`; they are not automatic redirects. `github.api_url` and hardcoded github.com requests remain unchanged, so client API configuration is required. The endpoint is for runner-host steps in the same Linux job with Docker.
 
-| Input            | Default                       | Purpose                                     |
-| ---------------- | ----------------------------- | ------------------------------------------- |
-| `mode`           | `smoke-test`                  | `smoke-test` or `server`                    |
-| `repository`     | `moyarich/release-smoke-test` | Emulated owner/repository                   |
-| `base-branch`    | `main`                        | Seeded branch                               |
-| `manifest-path`  | `packages/core/package.json`  | Package manifest                            |
-| `old-version`    | `1.0.0`                       | Seeded version                              |
-| `new-version`    | `1.1.0`                       | Smoke-test target version                   |
-| `update-pr-body` | `'1'`                         | Append the version note (`'0'` disables it) |
+For the built-in disposable release scenario, set `mode: smoke-test`. For local action testing after checkout, use `uses: ./`. Read [the GitHub Action guide](docs/04-github-action/page.mdx) for inputs, custom seeds, networking, and cleanup.
 
-The workflow `.github/workflows/emulator.yml` tests both modes on pushes, PRs, and manual runs. The merged-PR workflow also uses the action. To call it from another repository after publishing this repository to GitHub, replace `uses: ./` with `uses: moyarich/github_emulator@main` (pin a commit SHA for reproducible runs). This works because the build context is the action's own directory, independent of the caller's checkout. For self-hosted Linux runners, Docker and curl must be available; querying with gh requires gh there too.
+### Package sources and Marketplace distribution
+
+Following `moyarich/reusable-workflows`, canonical metadata and runtime live under `packages/actions/`. This repo generates one root `action.yml` for Marketplace discovery and a minimal `dist/github-emulator/` runtime. The action uses the generated runtime directly, without npm installation or imports from the caller's checkout.
+
+```sh
+npm run build:actions
+npm run check:actions
+```
+
+Commit generated files with their source changes. The **Prepare Marketplace action release** workflow checks the distribution, runs the smoke test, and prepares a versioned draft release. Review and publish the draft with GitHub's **Publish this Action to GitHub Marketplace** option. GitHub validates the name and requires acceptance of its terms. Metadata and a draft release alone do not create a Marketplace listing. See [GitHub's Marketplace publishing instructions](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace).
+
+## Native Portless HTTPS
+
+The local emulator package supports upstream emulate's native Portless integration:
+
+```sh
+npm run portless:proxy --workspace=@moya/emulate-github
+npm run start:portless --workspace=@moya/emulate-github
+```
+
+Portless handles the local proxy and certificates and registers `https://github.emulate.localhost`. First-time trust and port setup can require an interactive sudo prompt. The local package supplies a pinned Portless dependency, so no global npm installation is needed. Native `start --portless` also works when Portless is on PATH. This option is separate from Docker's configured Caddy route and does not change the action's runner-local HTTP endpoint. See [emulate's integration](https://github.com/vercel-labs/emulate#https-with-portless).
 
 ## Template integration
 
-The original template is retained alongside the emulator: `apps/playground/`, `packages/example/`, `.storybook/`, TypeScript/Vite/Vitest/Playwright/ESLint/Prettier configuration, and the original CI/release/maintenance workflows. Its original guide is preserved in [docs/template.md](docs/template.md). Shared dependencies use the root workspace lockfile; Docker copies all workspace manifests before installation.
+The original template is retained alongside the emulator: `apps/playground/`, `.storybook/`, TypeScript/Vite/Vitest/Playwright/ESLint/Prettier configuration, and the original CI/release/maintenance workflows. Its original guide is preserved in [docs/template.md](docs/template.md). Shared dependencies use the root workspace lockfile; Docker has a separate manifest and lockfile in `packages/emulate-github/docker/` and does not read workspace manifests or implementation files.
 
 Use `npm run dev` for the playground, `npm test` for unit tests, `npm run checks` for template quality checks, and `npm run test:emulator` for the local API smoke test. Existing `docker:*` commands and the reusable `action.yml` continue to operate independently of the playground.
 
+## Documentation and examples
+
+`apps/playground` is the GitHub emulator documentation site. Its registry discovers project-owned MDX pages from `docs/**/page.mdx` and `examples/**/page.mdx`; navigation and lazy-loaded routes are generated from their metadata.
+
+```sh
+npm run dev
+npm run build:playground
+```
+
+The guides cover running and configuring the emulator. Examples cover gh commands and release pull-request testing. MoyaForge supplies the underlying MDX tooling and copied UI components; the site does not publish component documentation. See [the documentation app guide](apps/playground/README.md) for content authoring and contributor tooling. The emulator Docker image remains independent of this UI.
+
 ## Tools used
 
-| Tool                             | Purpose                                                                                  | Where it is needed                                                     |
-| -------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Docker / Docker Desktop          | Builds and runs the emulator and HTTPS proxy containers                                  | Host, for Docker-based runs                                            |
-| Docker Compose v2                | Starts services, publishes ports, and manages networks and certificate volumes           | Host; invoked with `docker compose`                                    |
-| `catthehacker/ubuntu:act-latest` | Ubuntu base image with a Node runtime for the emulator and workflow environment          | Docker build; using this image does not install act                    |
-| Node.js 24+                      | Runs the emulator                                                                        | Included in the base image; install locally for direct runs            |
-| npm workspaces                   | Manages monorepo dependencies, the shared lockfile, and root commands                    | Included in the image; needed on the host for `npm run` commands       |
-| `emulate` 0.12.3                 | Provides the local GitHub API and seeded repository state                                | Installed through the workspace lockfile                               |
-| Caddy 2                          | Proxies HTTPS to the API and generates local CA/server certificates                      | Separate Compose service using `caddy:2-alpine`                        |
-| GitHub CLI (`gh`)                | Queries and modifies the emulator API; supports tested repository searches through HTTPS | Installed in the emulator image; optional on the host                  |
-| `act`                            | Replays GitHub Actions workflows locally in Docker                                       | Optional host installation; not installed in our images                |
-| `fzf`                            | Provides interactive menus for the local shell scripts                                   | Optional local installation; not installed in our images               |
-| Bash                             | Runs local scripts, CLI dispatch, and Docker startup                                     | Installed in the emulator image; required for local scripts            |
-| curl                             | Makes API requests and checks readiness                                                  | Installed in the emulator image; required for local scripts            |
-| jq                               | Builds, reads, and validates JSON API payloads                                           | Installed in the emulator image; required for local scripts            |
-| coreutils / base64               | Encodes and decodes package contents and provides shell utilities                        | Installed in the emulator image; local scripts need base64             |
-| Git, OpenSSH client, unzip       | Supports repository checkout, SSH, and archive operations                                | Installed in the emulator image                                        |
-| CA certificates                  | Provides the standard certificate trust bundle                                           | Installed in the emulator image; the proxy CA is configured separately |
-| GitHub Actions                   | Runs the release smoke-test workflow after a PR merges or on manual dispatch             | GitHub-hosted CI; workflow under `.github/workflows/`                  |
+| Tool                             | Purpose                                                                                  | Where it is needed                                                                       |
+| -------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Docker / Docker Desktop          | Builds and runs the emulator and HTTPS proxy containers                                  | Host, for Docker-based runs                                                              |
+| Docker Compose v2                | Starts services, publishes ports, and manages networks and certificate volumes           | Host; invoked with `docker compose`                                                      |
+| `catthehacker/ubuntu:act-latest` | Ubuntu base image with a Node runtime for the emulator and workflow environment          | Docker build; using this image does not install act                                      |
+| Node.js 24+                      | Runs the emulator                                                                        | Included in the base image; install locally for direct runs                              |
+| npm workspaces                   | Manages monorepo dependencies, the shared lockfile, and root commands                    | Included in the image; needed on the host for `npm run` commands                         |
+| `emulate` 0.12.3                 | Provides the local GitHub API and seeded repository state                                | Installed through the workspace lockfile locally and Docker’s own lockfile in containers |
+| Caddy 2                          | Proxies HTTPS to the API and generates local CA/server certificates                      | Separate Compose service using `caddy:2-alpine`                                          |
+| GitHub CLI (`gh`)                | Queries and modifies the emulator API; supports tested repository searches through HTTPS | Installed in the emulator image; optional on the host                                    |
+| MoyaForge MDX and CLI            | GitHub-sourced MDX compilation and component installation                                | Playground; pinned artifacts and provenance under `apps/playground/`                     |
+| MoyaForge registry components    | Editable CopyButton, CodeBlock, and CodeGroup with colocated CSS                         | Source-installed in the playground                                                       |
+| Vite, React, and Shiki           | Playground server, UI rendering, and build-time code highlighting                        | Playground dependencies                                                                  |
+| Portless                         | Native emulate HTTPS aliases for local CLI use                                           | Pinned local development dependency; proxy/trust setup is interactive                    |
+| `act`                            | Replays GitHub Actions workflows locally in Docker                                       | Optional host installation; not installed in our images                                  |
+| `fzf`                            | Provides interactive menus for the local shell scripts                                   | Optional local installation; not installed in our images                                 |
+| Bash                             | Runs local scripts, CLI dispatch, and Docker startup                                     | Installed in the emulator image; required for local scripts                              |
+| curl                             | Makes API requests and checks readiness                                                  | Installed in the emulator image; required for local scripts                              |
+| jq                               | Builds, reads, and validates JSON API payloads                                           | Installed in the emulator image; required for local scripts                              |
+| coreutils / base64               | Encodes and decodes package contents and provides shell utilities                        | Installed in the emulator image; local scripts need base64                               |
+| Git, OpenSSH client, unzip       | Supports repository checkout, SSH, and archive operations                                | Installed in the emulator image                                                          |
+| CA certificates                  | Provides the standard certificate trust bundle                                           | Installed in the emulator image; the proxy CA is configured separately                   |
+| GitHub Actions                   | Runs the release smoke-test workflow after a PR merges or on manual dispatch             | GitHub-hosted CI; workflow under `.github/workflows/`                                    |
 
 For a Docker-only setup, install Docker Desktop with Compose. Node/npm on the host are needed only for local scripts or the convenient `npm run docker:*` wrappers; equivalent `docker compose` commands work without host Node. Install act or fzf only if you use those optional features.

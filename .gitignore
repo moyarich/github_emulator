@@ -41,3 +41,12 @@ Thumbs.db
 
 # Local emulator certificates
 .local/
+
+# Pinned GitHub-source MoyaForge package artifacts for reproducible installs
+!apps/playground/vendor/*.tgz
+
+# Generated Marketplace action distribution must ship with the repository
+!/dist/
+/dist/*
+!/dist/github-emulator/
+!/dist/github-emulator/**

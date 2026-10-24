@@ -26,7 +26,7 @@ on:
         default: all
         options:
           - all
-          - "packages/example"
+          - "packages/emulate-github"
       version-mode:
         description: Resolve each package version
         type: choice

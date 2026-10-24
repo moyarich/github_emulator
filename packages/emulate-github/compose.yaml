@@ -1,8 +1,10 @@
+name: github_emulator
+
 services:
   github-emulator:
     build:
-      context: .
-      dockerfile: docker/Dockerfile
+      context: ./docker
+      dockerfile: Dockerfile
       target: server
     init: true
     ports:
@@ -50,8 +52,8 @@ services:
   smoke-test:
     profiles: [test]
     build:
-      context: .
-      dockerfile: docker/Dockerfile
+      context: ./docker
+      dockerfile: Dockerfile
       target: smoke-test
     init: true
     environment:

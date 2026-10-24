@@ -6,3 +6,6 @@ node_modules
 
 /scripts/
 /docs/
+
+/packages/emulate-github/scripts/
+/packages/emulate-github/docs/

@@ -1,0 +1,54 @@
+name: MoyaRich GitHub Emulator
+author: moyarich
+description: Start a seeded local GitHub API for testing workflows, with automatic cleanup.
+branding:
+  icon: server
+  color: blue
+
+inputs:
+  mode:
+    description: "server (start for subsequent workflow steps) or smoke-test (run and exit)"
+    default: server
+  repository:
+    description: Repository to seed locally; does not access or modify the real repository
+    default: ${{ github.repository }}
+  token:
+    description: Local emulator token; use a test value, not a real GitHub token
+    default: local-test-token
+  seed-file:
+    description: Optional seed YAML/JSON file, relative to the caller workspace; must seed the selected repository and token
+    default: ""
+  base-branch:
+    description: Seeded base branch when using the default seed
+    default: main
+  manifest-path:
+    description: Seeded package manifest path when using the default seed
+    default: packages/core/package.json
+  old-version:
+    description: Initial package version
+    default: 1.0.0
+  new-version:
+    description: Target version for smoke-test mode
+    default: 1.1.0
+  update-pr-body:
+    description: "Append a version note during the smoke test: 0 or 1"
+    default: "1"
+  export-env:
+    description: Export GH_EMULATOR_API_URL and GH_EMULATOR_TOKEN for later steps; client base URLs still require configuration
+    default: "true"
+
+outputs:
+  api-url:
+    description: HTTP API URL on the runner host (server mode)
+  token:
+    description: Local emulator token for client authentication
+  repository:
+    description: Emulated owner/repository
+  container-id:
+    description: Emulator container ID; automatically removed by the post step
+
+runs:
+  using: node24
+  main: dist/github-emulator/main.mjs
+  post: dist/github-emulator/post.mjs
+  post-if: always()

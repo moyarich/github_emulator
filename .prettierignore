@@ -7,3 +7,6 @@ package-lock.json
 
 # Generated local emulator state and certificates
 .local/
+
+# Generated root action metadata; format its canonical package source instead
+/action.yml

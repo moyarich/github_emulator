@@ -8,16 +8,24 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests --exclude '**/*.spec.*' --exclude '**/*.specs.*'"
+    "test": "vitest run --passWithNoTests --exclude '**/*.spec.*' --exclude '**/*.specs.*'",
+    "moyaforge:update": "node ./scripts/update-moyaforge.mjs",
+    "components:add": "moyaforge add"
   },
   "dependencies": {
+    "@mdx-js/react": "^3.1.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "@moyarich/example": "0.1.0"
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^5.0.0",
+    "@mdx-js/rollup": "^3.1.1",
+    "@moyarich/moyaforge-cli": "file:./vendor/moyarich-moyaforge-cli-0.1.0.tgz",
+    "@moyarich/moyaforge-mdx": "file:./vendor/moyarich-moyaforge-mdx-0.1.0.tgz",
+    "@shikijs/rehype": "^4.5.0",
+    "@types/mdx": "^2.0.14",
     "@types/react": "^19.1.0",
-    "@types/react-dom": "^19.1.0"
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "vite": "^8.3.4"
   }
 }

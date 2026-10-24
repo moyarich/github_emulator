@@ -24,7 +24,7 @@ on:
         default: all
         options:
           - all
-          - packages/example
+          - packages/emulate-github
       version-mode:
         description: Version mode
         required: true

@@ -3,8 +3,16 @@
   "version": "1.0.0",
   "description": "Local GitHub release pull request smoke test",
   "scripts": {
-    "start": "bash ../../scripts/start-emulator.sh start",
-    "test": "bash ../../scripts/github_emulator.sh test"
+    "start": "bash ./scripts/start-emulator.sh start",
+    "test": "bash ./scripts/github_emulator.sh test",
+    "docker:up": "docker compose up --build -d --wait",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:test": "docker compose run --build --rm smoke-test",
+    "docker:shell": "docker compose exec github-emulator bash -c 'export GH_TOKEN=\"$TOKEN\" GH_ENTERPRISE_TOKEN=\"$TOKEN\"; exec bash -i'",
+    "docker:cert": "mkdir -p .local && docker compose exec -T github-proxy cat /data/caddy/pki/authorities/local/root.crt > .local/emulator-ca.crt",
+    "portless:proxy": "portless proxy start",
+    "start:portless": "bash ./scripts/start-emulator.sh start --portless"
   },
   "keywords": [],
   "type": "commonjs",
@@ -14,5 +22,8 @@
   "private": true,
   "engines": {
     "node": ">=24"
+  },
+  "devDependencies": {
+    "portless": "0.15.11"
   }
 }

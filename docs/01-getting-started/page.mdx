@@ -1,0 +1,68 @@
+---
+title: Getting started
+label: Getting started
+description: Start the GitHub emulator and connect to its API.
+---
+
+# Run GitHub locally.
+
+Start a disposable GitHub API for testing branches, package changes, and pull requests without changing a real repository.
+
+## Start the server
+
+<CodeGroup label="Start the emulator">
+<CodeTab label="Monorepo root">
+
+```sh
+npm ci
+npm run docker:up
+```
+
+</CodeTab>
+<CodeTab label="Package directory">
+
+```sh
+cd packages/emulate-github
+docker compose up --build -d --wait
+```
+
+</CodeTab>
+</CodeGroup>
+
+Docker builds its own dependencies. The package-directory command needs Docker and Compose, without a host npm installation. The server runs in the background until you stop it.
+
+## Open the interactive shell
+
+From the monorepo root:
+
+```sh
+npm run docker:shell
+```
+
+GitHub CLI is installed in the container, with its local token and HTTPS proxy configured:
+
+```sh
+gh api "repos/$REPO"
+```
+
+<CopyButton value='gh api "repos/$REPO"'>Copy repository query</CopyButton>
+
+Type `exit` to leave the shell; the emulator stays running.
+
+## Connect from your Mac
+
+```sh
+GH_TOKEN=local-test-token \
+gh api http://localhost:4001/repos/moyarich/release-smoke-test
+```
+
+The [seeded repository endpoint](http://localhost:4001/repos/moyarich/release-smoke-test) returns JSON. The API has no homepage: a request to `/` returns `404 Not Found`.
+
+## Logs and shutdown
+
+```sh
+npm run docker:logs
+npm run docker:down
+```
+
+Logs include the repository endpoint and connection examples. State is in memory and resets when the emulator restarts. For supported API behavior, see the [upstream GitHub emulator documentation](https://emulate.dev/docs/github).

@@ -1,0 +1,50 @@
+---
+title: Configuration
+label: Configuration
+description: Configure the seed, connection details, and HTTPS proxy.
+---
+
+# Configure the emulator.
+
+The package owns its Compose environment in `packages/emulate-github/compose.yaml`. Override interpolated settings in your shell or the package's `.env` file.
+
+## Seed and connection settings
+
+| Setting         | Default                       | Purpose                      |
+| --------------- | ----------------------------- | ---------------------------- |
+| `REPO`          | `moyarich/release-smoke-test` | Seeded repository            |
+| `TOKEN`         | `local-test-token`            | Local API token              |
+| `BASE_BRANCH`   | `main`                        | Seeded branch                |
+| `MANIFEST_PATH` | `packages/core/package.json`  | Seeded manifest              |
+| `OLD_VERSION`   | `1.0.0`                       | Initial package version      |
+| `EMULATOR_PORT` | `4001`                        | HTTP port on your Mac        |
+| `HTTPS_PORT`    | `8443`                        | Proxy HTTPS port on your Mac |
+| `NEW_VERSION`   | `1.1.0`                       | Smoke-test target version    |
+
+```sh
+EMULATOR_PORT=4010 REPO=moyarich/demo npm run docker:up
+```
+
+Restarting the emulator creates fresh repository state. Keep the token local to this test environment; it is not a real GitHub token.
+
+## HTTPS and GitHub CLI
+
+The Docker shell is already configured to use `https://github.emulator.test`. The Mac-facing proxy listens at `https://github.emulator.test:8443` by default.
+
+For direct Mac access, add `127.0.0.1 github.emulator.test` to `/etc/hosts`, then export the proxy's public certificate:
+
+```sh
+npm run docker:cert
+export GH_HOST=github.emulator.test:8443
+export GH_ENTERPRISE_TOKEN=local-test-token
+export SSL_CERT_FILE="$PWD/packages/emulate-github/.local/emulator-ca.crt"
+gh api repos/moyarich/release-smoke-test
+```
+
+Caddy generates its local CA automatically and retains it in a Docker volume. The exported certificate is gitignored. `SSL_CERT_FILE` configures CLI trust; browser trust requires a separate certificate import.
+
+## Other containers
+
+Containers on the Compose network can reach `http://github-emulator:4001`. Other Docker containers on your Mac can use `http://host.docker.internal:4001`.
+
+Clients must explicitly use that API address. A variable such as `API` only changes behavior when the client reads it. Commands requiring unsupported API features, including the GraphQL endpoint used by `gh repo view`, may still fail.

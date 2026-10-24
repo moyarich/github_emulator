@@ -1,0 +1,48 @@
+---
+title: Query with gh
+label: Query with gh
+description: Read repositories, pull requests, and search results from the emulator.
+---
+
+# Query the local API.
+
+Start the emulator and enter its shell from the monorepo root:
+
+```sh
+npm run docker:up
+npm run docker:shell
+```
+
+## Read the repository
+
+Inside the container shell:
+
+```sh
+gh api "repos/$REPO"
+gh api "repos/$REPO/pulls"
+```
+
+The default `REPO` is `moyarich/release-smoke-test`. These commands query emulated state, not github.com.
+
+## Search repositories
+
+The container uses Linux date syntax:
+
+```sh
+gh search repos --owner moyarich \
+  --created ">$(date -d '40 days ago' +%Y-%m-%d)" \
+  --sort updated --order desc
+```
+
+Use an explicit owner rather than `@me`. Ordering requires a `--sort` option. The HTTPS proxy handles the GitHub Enterprise API path conventions used by `gh`.
+
+## Query from your Mac
+
+Full HTTP endpoints work without proxy hostname configuration:
+
+```sh
+GH_TOKEN=local-test-token \
+gh api http://localhost:4001/repos/moyarich/release-smoke-test/pulls
+```
+
+Configure the HTTPS hostname and certificate before using standard `gh search repos` commands directly on your Mac. On macOS the equivalent date expression is `date -v-40d +%Y-%m-%d`.

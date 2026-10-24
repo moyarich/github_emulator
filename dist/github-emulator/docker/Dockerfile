@@ -26,15 +26,12 @@ RUN node -e 'if (Number(process.versions.node.split(".")[0]) < 24) { throw new E
     && npm --version \
     && mkdir -p "$NPM_CONFIG_CACHE"
 
-# ---- Shared monorepo dependencies ----
+# ---- Standalone Docker runtime dependencies ----
 FROM tools AS dependencies
 WORKDIR /app
 
-# Install locked dependencies separately so script edits reuse this layer.
+# This build context is docker/ and needs no monorepo packages or scripts.
 COPY package.json package-lock.json ./
-COPY packages/emulate-github/package.json ./packages/emulate-github/package.json
-COPY packages/example/package.json ./packages/example/package.json
-COPY apps/playground/package.json ./apps/playground/package.json
 RUN npm ci --omit=dev --no-audit --no-fund
 
 # ---- Disposable Docker smoke test; independent of local scripts ----
@@ -397,10 +394,18 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 0' TERM INT
 
+if [[ -n "${SEED_FILE:-}" ]]; then
+  [[ -f "$SEED_FILE" ]] || { echo "Seed file not found: $SEED_FILE" >&2; exit 1; }
+  cp "$SEED_FILE" "$RUN_DIR/seed.yaml"
+  SEED_PATH="$RUN_DIR/seed.yaml"
+else
+SEED_PATH="$RUN_DIR/seed.json"
 jq -n --arg owner "${REPO%%/*}" --arg name "${REPO#*/}" --arg token "$TOKEN" --arg branch "$BASE_BRANCH" \
   '{tokens:{($token):{login:$owner,scopes:["repo","user"]}},github:{users:[{login:$owner}],repos:[{owner:$owner,name:$name,auto_init:true,default_branch:$branch}]}}' > "$RUN_DIR/seed.json"
 
-/app/node_modules/.bin/emulate start --service github --port "$EMU_PORT" --host "${EMU_HOST:-0.0.0.0}" --seed "$RUN_DIR/seed.json" &
+fi
+
+/app/node_modules/.bin/emulate start --service github --port "$EMU_PORT" --host "${EMU_HOST:-0.0.0.0}" --seed "$SEED_PATH" &
 EMU_PID=$!
 
 ready=0
@@ -414,17 +419,23 @@ for ((i=0; i<60; i++)); do
 done
 [[ "$ready" == 1 ]] || { echo 'Emulator startup timed out' >&2; exit 1; }
 
+if [[ -z "${SEED_FILE:-}" ]]; then
 jq -n --arg branch "$BASE_BRANCH" \
   --arg content "$(jq -n --arg version "$OLD_VERSION" '{name:"@example/core",version:$version}' | base64 | tr -d '\n')" \
   '{message:"Seed test package",branch:$branch,content:$content}' > "$RUN_DIR/manifest.json"
 curl -fsS -o /dev/null -X PUT "http://127.0.0.1:$EMU_PORT/repos/$REPO/contents/$MANIFEST_PATH" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data-binary @"$RUN_DIR/manifest.json"
+fi
 PUBLIC_API="${PUBLIC_API:-http://localhost:$EMU_PORT}"
 printf '\nGitHub emulator ready\n'
 printf '  API base URL: %s\n' "$PUBLIC_API"
 printf '  Repository:   %s/repos/%s\n' "$PUBLIC_API" "$REPO"
 printf '  [seeded repository endpoint](%s/repos/%s)\n' "$PUBLIC_API" "$REPO"
-printf '  Package:      %s/repos/%s/contents/%s\n' "$PUBLIC_API" "$REPO" "$MANIFEST_PATH"
+if [[ -z "${SEED_FILE:-}" ]]; then
+  printf '  Package:      %s/repos/%s/contents/%s\n' "$PUBLIC_API" "$REPO" "$MANIFEST_PATH"
+else
+  printf '  Custom seed loaded; default package bootstrap skipped.\n'
+fi
 printf '  This is a GitHub API server with no homepage. GET / returns 404 Not Found.\n'
 printf '  Authenticate requests with an Authorization: Bearer header.\n'
 if [[ "$TOKEN" == "local-test-token" ]]; then

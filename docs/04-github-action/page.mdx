@@ -1,0 +1,87 @@
+---
+title: GitHub Action
+label: GitHub Action
+description: Run workflow clients against a local GitHub API, with automatic cleanup.
+---
+
+# Emulate GitHub in a workflow.
+
+Use this action before steps that need a GitHub API fixture. It creates a local seeded repository, waits for readiness, and removes its container in a post-job step. The default mode is `server`.
+
+## Point workflow clients at the emulator
+
+```yaml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: moyarich/github_emulator@main
+        id: emulator
+      - name: Run GitHub-dependent logic locally
+        env:
+          API: ${{ steps.emulator.outputs.api-url }}
+          GH_TOKEN: ${{ steps.emulator.outputs.token }}
+          REPO: ${{ steps.emulator.outputs.repository }}
+        run: |
+          gh api "$API/repos/$REPO"
+          gh api "$API/repos/$REPO/issues" \
+            --method POST -f title='Workflow test issue'
+```
+
+Pin a released version or commit SHA for reproducibility. The snippet uses `main` because a Marketplace version has not been published yet. Node.js 24 actions and Docker must be available on a Linux runner; the root action brings its own Docker build context.
+
+The default seed uses the caller repository's name, not its real GitHub data. The action never clones or updates the real repository. All effects of the example above are confined to the emulator.
+
+## Client configuration is required
+
+The action exports `GH_EMULATOR_API_URL` and `GH_EMULATOR_TOKEN` for later steps by default. These variables are not automatic redirects. Use the `api-url` and `token` outputs to configure your workflow's client boundary:
+
+- For `gh api`, use the full local URL and set `GH_TOKEN` to the test token.
+- For Octokit, construct the client with `baseUrl` set to `api-url` and `auth` set to the local token.
+- For an existing script or reusable workflow, pass the local API URL through its supported configuration or add an API URL input.
+
+A hardcoded github.com endpoint or the `github.api_url` context still points to real GitHub. The action cannot override those contexts, and it does not supply a live GitHub token. Unsupported emulator endpoints remain unsupported. Standard `gh` subcommands may also need HTTPS/host configuration; the action's endpoint is plain HTTP on the runner.
+
+## Custom fixtures
+
+```yaml
+- uses: actions/checkout@v4
+- uses: moyarich/github_emulator@main
+  id: emulator
+  with:
+    repository: fixture-owner/workflow-tests
+    token: fixture-only-token
+    seed-file: tests/fixtures/github.json
+```
+
+The fixture file is caller-owned YAML or JSON in the upstream emulator's seed format. It must seed the selected repository and token. The file is mounted read-only. When provided, the action does not add the default package manifest; create files or other scenario data through the local API as needed.
+
+## Inputs and outputs
+
+| Input            | Default                      | Purpose                                            |
+| ---------------- | ---------------------------- | -------------------------------------------------- |
+| `mode`           | `server`                     | Keep a server for later steps, or run `smoke-test` |
+| `repository`     | Caller repository            | Name to seed inside the emulator                   |
+| `token`          | `local-test-token`           | Local authentication, not a live GitHub token      |
+| `seed-file`      | Empty                        | Optional caller seed YAML/JSON (server mode)       |
+| `base-branch`    | `main`                       | Default seed's branch                              |
+| `manifest-path`  | `packages/core/package.json` | Default seed's manifest                            |
+| `old-version`    | `1.0.0`                      | Initial version                                    |
+| `new-version`    | `1.1.0`                      | Smoke-test target                                  |
+| `update-pr-body` | `'1'`                        | Add a version note in the smoke test               |
+| `export-env`     | `'true'`                     | Export emulator convenience variables              |
+
+Server outputs are `api-url`, `token`, `repository`, and `container-id`. The URL is bound to runner-host loopback on a random port. It is for later host steps in the same job; container jobs and separate jobs require their own networking setup. Cleanup is automatic even if subsequent steps fail. An explicit `docker rm --force` is optional.
+
+## Marketplace packaging and release
+
+Canonical action metadata and runtime live in `packages/actions`. Building generates the tracked root `action.yml` and `dist/github-emulator/` distribution. The root entry is needed for Marketplace discovery; subdirectory actions alone do not create the listing.
+
+```sh
+npm run build:actions
+npm run check:actions
+```
+
+Commit and push source and generated files together. Then run **Prepare Marketplace action release** with a version such as `v1.0.0`. It validates the generated distribution, runs the Docker smoke test, and creates a draft release. On GitHub, review the draft and select **Publish this Action to GitHub Marketplace** when publishing. The repository is public; GitHub validates the Marketplace name and requires its terms to be accepted. Preparing metadata or a draft does not publish a Marketplace listing.
+
+See [GitHub's publishing instructions](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace) for the current requirements.
