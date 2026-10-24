@@ -33,6 +33,8 @@ WORKDIR /app
 # Install locked dependencies separately so script edits reuse this layer.
 COPY package.json package-lock.json ./
 COPY packages/emulate-github/package.json ./packages/emulate-github/package.json
+COPY packages/example/package.json ./packages/example/package.json
+COPY apps/playground/package.json ./apps/playground/package.json
 RUN npm ci --omit=dev --no-audit --no-fund
 
 # ---- Disposable Docker smoke test; independent of local scripts ----

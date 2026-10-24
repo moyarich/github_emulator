@@ -1,0 +1,61 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "src/**"
+      - "packages/**"
+      - "apps/**"
+      - "actions/**"
+      - "tests/**"
+      - ".storybook/**"
+      - "**/.storybook/**"
+      - "**/*.stories.*"
+      - "**/*.story.*"
+      - "**/*.spec.*"
+      - "**/*.specs.*"
+      - "**/playwright.config.*"
+      - "playwright.config.*"
+      - "vitest.config.*"
+      - "package.json"
+      - "package-lock.json"
+      - "eslint.config.*"
+      - ".prettierignore"
+      - "tsconfig*.json"
+      - ".github/workflows/**"
+      - ".github/actionlint.yaml"
+      - ".github/check-dist-config.yml"
+  workflow_dispatch:
+    inputs:
+      checkout-sha:
+        description: Exact commit SHA to validate (e.g. after self-heal)
+        type: string
+        required: false
+        default: ""
+permissions:
+  contents: read
+  packages: read
+  pull-requests: read
+concurrency:
+  group: ci-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || inputs.checkout-sha || github.ref }}
+  cancel-in-progress: false
+jobs:
+  actionlint:
+    name: Workflows / actionlint
+    uses: ./.github/workflows/ci_actionlint.yml
+  cli:
+    name: Node / build, lint, typecheck, Vitest, pack
+    uses: ./.github/workflows/ci_cli.yml
+    with:
+      checkout-sha: ${{ inputs.checkout-sha || '' }}
+  storybook:
+    name: Storybook / component tests
+    uses: ./.github/workflows/ci_storybook.yml
+    with:
+      checkout-sha: ${{ inputs.checkout-sha || '' }}
+  playwright:
+    name: Playwright / browser tests
+    uses: ./.github/workflows/ci_playwright.yml
+    with:
+      checkout-sha: ${{ inputs.checkout-sha || '' }}

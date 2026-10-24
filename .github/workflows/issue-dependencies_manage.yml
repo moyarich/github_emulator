@@ -1,0 +1,41 @@
+name: Issue dependencies · Manage
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number or URL
+        type: string
+        required: true
+      relationship:
+        description: Relationship to related issues
+        type: choice
+        options: [blocked-by, blocking]
+        default: blocked-by
+      action:
+        description: Add or remove a dependency
+        type: choice
+        options: [add, remove]
+        default: add
+      related_issues:
+        description: Related issue numbers or URLs, comma-separated
+        type: string
+        required: true
+      dry_run:
+        description: Preview without changing issues
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  manage:
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_manage-issue-dependencies.yml@main
+    with:
+      issue: ${{ inputs.issue }}
+      relationship: ${{ inputs.relationship }}
+      action: ${{ inputs.action }}
+      related_issues: ${{ inputs.related_issues }}
+      dry_run: ${{ inputs.dry_run }}

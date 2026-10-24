@@ -1,0 +1,26 @@
+name: CI / Playwright
+on:
+  workflow_call:
+    inputs:
+      checkout-sha:
+        description: Exact commit SHA to validate
+        type: string
+        required: false
+        default: ""
+  workflow_dispatch:
+    inputs:
+      checkout-sha:
+        description: Exact commit SHA to validate
+        type: string
+        required: false
+        default: ""
+concurrency:
+  group: ci-${{ github.repository }}-${{ github.workflow }}-${{ github.event.pull_request.number || inputs.checkout-sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  playwright:
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_ci_playwright.yml@main
+    with:
+      checkout-sha: ${{ inputs.checkout-sha }}

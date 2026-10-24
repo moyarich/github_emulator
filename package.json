@@ -2,20 +2,60 @@
   "name": "github-emulator-monorepo",
   "version": "1.0.0",
   "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
-  "engines": {
-    "node": ">=24"
-  },
+  "type": "module",
   "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "build:packages": "npm run build --workspaces --if-present",
+    "build:playground": "npm run build --workspace apps/playground",
+    "test": "npm run test:unit",
+    "test:watch": "npm run test:watch --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "npm run lint -- --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "checks": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "pack:check": "npm pack --workspaces --dry-run",
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "storybook": "storybook dev",
+    "build:storybook": "storybook build",
     "start": "npm run start --workspace=@moya/emulate-github",
-    "test": "npm run test --workspaces --if-present",
     "docker:up": "docker compose up --build -d --wait",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
     "docker:test": "docker compose run --build --rm smoke-test",
     "docker:shell": "docker compose exec github-emulator bash -c 'export GH_TOKEN=\"$TOKEN\" GH_ENTERPRISE_TOKEN=\"$TOKEN\"; exec bash -i'",
-    "docker:cert": "mkdir -p .local && docker compose exec -T github-proxy cat /data/caddy/pki/authorities/local/root.crt > .local/emulator-ca.crt"
+    "docker:cert": "mkdir -p .local && docker compose exec -T github-proxy cat /data/caddy/pki/authorities/local/root.crt > .local/emulator-ca.crt",
+    "test:emulator": "npm run test --workspace=@moya/emulate-github"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.3.1",
+    "eslint": "^10.0.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.70.0",
+    "vite": "^7.3.7",
+    "vitest": "^3.2.7",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.3.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "@playwright/test": "^1.56.0",
+    "@storybook/react-vite": "^9.1.0",
+    "storybook": "^9.1.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24"
   }
 }

@@ -1,0 +1,98 @@
+name: Publish npm package
+
+run-name: >-
+  Publish · ${{ inputs.package }} · ${{ inputs.registry }} · ${{ inputs.version-mode
+  }}${{ inputs.version-mode == 'exact' && format(':{0}', inputs.exact-version) ||
+  '' }} · dry-run=${{ inputs.dry-run }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace-tools-source:
+        description: Workspace Tools CLI source for package discovery
+        type: choice
+        required: true
+        default: auto
+        options:
+          - auto
+          - checkout:current
+          - checkout:upstream;branch:main
+          - registry:npm:latest
+      package:
+        description: Select a publishable workspace package
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - "packages/example"
+      registry:
+        description: Publish destination
+        required: true
+        default: npm
+        type: choice
+        options:
+          - npm
+          - github
+          - all
+      version-mode:
+        description: Publish manifest version or an exact version
+        required: true
+        default: package-json
+        type: choice
+        options: [package-json, exact]
+      exact-version:
+        description: Version when using exact mode
+        required: false
+        default: ""
+        type: string
+      verify-git-tag:
+        description: Require matching package Git tag before publishing
+        required: true
+        default: true
+        type: boolean
+      node-version:
+        description: Node.js version for publishing
+        required: true
+        default: "24"
+        type: string
+      dry-run:
+        description: Preview publishing without changing the npm registry
+        required: true
+        default: true
+        type: boolean
+      tag:
+        description: npm distribution tag (leave empty to use the resolved
+          default)
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+jobs:
+  dispatch-input-summary:
+    name: "job: Workflow parameters"
+    permissions:
+      contents: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_dispatch-input-summary.yml@main
+    with:
+      parameters-json: ${{ toJSON(inputs) }}
+      heading: "publish · Dispatch parameters"
+  publish:
+    permissions:
+      contents: write
+      packages: write
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_bulk-npm-publish.yml@main
+    with:
+      workspace-tools-source: ${{ inputs.workspace-tools-source }}
+      package: ${{ inputs.package }}
+      registry: ${{ inputs.registry }}
+      version-mode: ${{ inputs.version-mode }}
+      exact-version: ${{ inputs.exact-version }}
+      verify-git-tag: ${{ inputs.verify-git-tag }}
+      node-version: ${{ inputs.node-version }}
+      dry-run: ${{ inputs.dry-run }}
+      tag: ${{ inputs.tag }}
+    secrets:
+      npm-token: ${{ secrets._NPM_TOKEN }}

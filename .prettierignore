@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+package-lock.json
+# Workflow files need reviewed changes with workflow-enabled credentials.
+.github/workflows/
+
+# Generated local emulator state and certificates
+.local/

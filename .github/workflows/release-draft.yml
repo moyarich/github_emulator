@@ -1,0 +1,139 @@
+name: Release Draft
+
+run-name: >-
+  Release draft · ${{ github.event_name == 'workflow_dispatch' && inputs.package ||
+  'changed' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace-tools-source:
+        description: Workspace Tools CLI source for package discovery
+        type: choice
+        required: true
+        default: auto
+        options:
+          - auto
+          - checkout:current
+          - checkout:upstream;branch:main
+          - registry:npm:latest
+      package:
+        description: Select a publishable workspace package
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - packages/example
+      version-mode:
+        description: Version mode
+        required: true
+        default: bump
+        type: choice
+        options:
+          - bump
+          - package-json
+          - exact
+      version-bump:
+        description: Version bump
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prepatch
+          - preminor
+          - premajor
+          - prerelease
+      exact-version:
+        description: Exact version when version-mode is exact
+        required: false
+        default: ""
+        type: string
+      dry-run:
+        description: Preview without creating or modifying release drafts
+        required: true
+        default: true
+        type: boolean
+
+permissions: {}
+
+jobs:
+  dispatch-input-summary:
+    name: "job: Workflow parameters"
+    permissions:
+      contents: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_dispatch-input-summary.yml@main
+    with:
+      parameters-json: ${{ github.event_name == 'workflow_dispatch' && toJSON(inputs) || '{}' }}
+      heading: "release-draft · Run parameters"
+
+  discover-packages:
+    needs: dispatch-input-summary
+    name: Discover publishable packages
+    permissions:
+      contents: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_discover-packages.yml@main
+    with:
+      packages-directory: packages
+      use-workspaces: true
+      include-root-package: false
+      require-publish-config: false
+      workspace-tools-source: ${{ inputs.workspace-tools-source || 'auto' }}
+
+  select-packages:
+    name: Select packages for drafting
+    needs: discover-packages
+    permissions:
+      contents: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_select-release-packages.yml@main
+    with:
+      packages-json: ${{ needs.discover-packages.outputs.packages }}
+      ignored-paths-json: '[".github/workflows/release-draft.yml"]'
+      package: ${{ github.event_name == 'workflow_dispatch' && inputs.package ||
+        'all' }}
+      event-name: ${{ github.event_name }}
+      before-sha: ${{ github.event.before || '' }}
+      after-sha: ${{ github.sha }}
+      target-branch: ${{ github.ref_name }}
+      version-mode: ${{ github.event_name == 'workflow_dispatch' && inputs.version-mode || '' }}
+      version-bump: ${{ github.event_name == 'workflow_dispatch' && inputs.version-bump || '' }}
+      exact-version: ${{ github.event_name == 'workflow_dispatch' && inputs.exact-version || '' }}
+
+  draft-package:
+    name: "package: ${{ matrix.name }} | dir: ${{ matrix.directory }}"
+    needs:
+      - discover-packages
+      - select-packages
+    if: >-
+      ${{ always() &&
+          needs.discover-packages.result == 'success' &&
+          needs.select-packages.result == 'success' &&
+          needs.select-packages.outputs.has-packages == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select-packages.outputs.matrix ||
+        '{"include":[]}') }}
+    concurrency:
+      group: draft-package-${{ github.repository }}-${{ matrix.directory }}
+      cancel-in-progress: true
+    permissions:
+      contents: write
+      pull-requests: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_release-drafter.yml@main
+    with:
+      target-branch: ${{ github.ref_name }}
+      version: ""
+      initial-version: "0.1.0"
+      version-mode: ${{ needs.select-packages.outputs.version-mode }}
+      version-bump: ${{ needs.select-packages.outputs.version-bump }}
+      exact-version: ${{ needs.select-packages.outputs.exact-version }}
+      release-tag: ""
+      tag-prefix: ${{ format('{0}@', matrix.name) }}
+      release-name: ${{ format('{0} v$RESOLVED_VERSION', matrix.name) }}
+      changelog-path: ${{ format('{0}/CHANGELOG.md', matrix.directory) }}
+      package-name: ${{ matrix.name }}
+      package-directory: ${{ matrix.directory }}
+      dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}

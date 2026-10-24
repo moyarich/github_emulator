@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/moyarich/reusable-workflows/main/.github/reusable-configurations/check-dist-config.schema.json
+# Repository-local check-dist settings. The canonical workflow caller reads this
+# file; reusable-workflows owns the schema and validation implementation.
+# Defaults apply to discovered buildable workspaces. Override by package name
+# or directory under packages when distributions are nonstandard.
+packages:
+  all:
+    distPath: "{packageDir}/dist"
+
+# Example overrides:
+#   "packages/example":
+#     distPath: "{packageDir}/build"
+#     buildCommand: "npm run build --workspace @scope/example"
+#
+# Add targets not returned by workspace discovery with extraPackages.
+# extraPackages:
+#   - name: root-bundle
+#     directory: .

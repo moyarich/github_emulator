@@ -1,5 +1,43 @@
+# Dependencies and caches
 node_modules/
-.DS_Store
-*.log
+.npm/
+.pnpm-store/
+.yarn/cache/
+.cache/
+.vite/
+.turbo/
+.eslintcache
+*.tsbuildinfo
 
+# Logs and test artifacts
+*.log
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# Generated output
+dist/
+build/
+out/
+.next/
+*.tgz
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+.local
+
+# Local emulator certificates
 .local/

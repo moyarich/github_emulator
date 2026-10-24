@@ -7,8 +7,8 @@ services:
     init: true
     ports:
       - "127.0.0.1:${EMULATOR_PORT:-4001}:4001"
-    environment: &emulator-environment
-      # Container networking; EMULATOR_PORT changes the published host port.
+    environment:
+      &emulator-environment # Container networking; EMULATOR_PORT changes the published host port.
       EMU_PORT: "4001"
       EMU_HOST: "0.0.0.0"
       API: "http://localhost:4001"
@@ -37,7 +37,11 @@ services:
     volumes:
       - proxy-data:/proxy-data:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS -o /dev/null -H \"Authorization: Bearer $$TOKEN\" http://127.0.0.1:4001/repos/$$REPO/contents/$$MANIFEST_PATH"]
+      test:
+        [
+          "CMD-SHELL",
+          'curl -fsS -o /dev/null -H "Authorization: Bearer $$TOKEN" http://127.0.0.1:4001/repos/$$REPO/contents/$$MANIFEST_PATH',
+        ]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -72,7 +76,15 @@ services:
         aliases:
           - github.emulator.test
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:2019/config/",
+        ]
       interval: 5s
       timeout: 3s
       retries: 12

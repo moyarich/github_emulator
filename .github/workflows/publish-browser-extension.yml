@@ -1,0 +1,73 @@
+name: Publish browser extension
+
+run-name: >-
+  Browser extension · ${{ inputs.package }} · ${{ inputs.registry }} · dry-run=${{ inputs.dry-run }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Extension workspace containing package.json
+        type: string
+        default: "."
+        required: true
+      build-directory:
+        description: Built browser extension folder
+        type: string
+        default: dist
+        required: true
+      registry:
+        description: Browser extension store
+        type: choice
+        options: [chrome, firefox, all]
+        default: all
+        required: true
+      chrome-publisher-id:
+        description: Chrome Web Store publisher ID (required for Chrome live publishing)
+        type: string
+        default: ""
+      chrome-extension-id:
+        description: Chrome Web Store item ID (required for Chrome live publishing)
+        type: string
+        default: ""
+      firefox-addon-id:
+        description: Expected Firefox Add-on ID (optional manifest validation)
+        type: string
+        default: ""
+      dry-run:
+        description: Validate and archive without submitting to either store
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  dispatch-input-summary:
+    name: "job: Workflow parameters"
+    permissions:
+      contents: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_dispatch-input-summary.yml@main
+    with:
+      parameters-json: ${{ toJSON(inputs) }}
+      heading: "browser-extension-publish · Run parameters"
+
+  publish:
+    permissions:
+      contents: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_browser-extension-publish.yml@main
+    with:
+      package-directory: ${{ inputs.package }}
+      build-directory: ${{ inputs.build-directory }}
+      registry: ${{ inputs.registry }}
+      chrome-publisher-id: ${{ inputs.chrome-publisher-id }}
+      chrome-extension-id: ${{ inputs.chrome-extension-id }}
+      firefox-addon-id: ${{ inputs.firefox-addon-id }}
+      dry-run: ${{ inputs.dry-run }}
+      install-command: npm ci --include=optional
+      build-command: npm run build --if-present
+    secrets:
+      chrome-client-id: ${{ secrets._CHROME_CLIENT_ID }}
+      chrome-client-secret: ${{ secrets._CHROME_CLIENT_SECRET }}
+      chrome-refresh-token: ${{ secrets._CHROME_REFRESH_TOKEN }}
+      firefox-api-key: ${{ secrets._FIREFOX_API_KEY }}
+      firefox-api-secret: ${{ secrets._FIREFOX_API_SECRET }}

@@ -30,7 +30,7 @@ bash scripts/github_emulator.sh config
 NEW_VERSION=2.0.0 UPDATE_PR_BODY=1 \
   bash scripts/github_emulator.sh test
 # Root command (passes the explicit action):
-npm test
+npm run test:emulator
 ```
 
 This creates a branch, commits a package version, opens and optionally edits a PR, merges it, and verifies the resulting version. It modifies the repository selected by `API` and `REPO`. If a matching local server is already up, the test reuses it; otherwise it starts and seeds one, then stops that server on completion. Existing servers need the requested repository and manifest. Leave `RELEASE_BRANCH` unset for a fresh branch each time.
@@ -57,7 +57,7 @@ Select start/test, help, docs, config, or exit. Escape/Ctrl+C cancels without st
 
 ## Command behavior
 
-No arguments opens the fzf menu in an interactive terminal when fzf is installed; otherwise it shows help. Starting work requires `start`, `test`, or `run`. Root `npm start` and `npm test` pass explicit actions for automation. `help`, `--help`, and `-h` print usage; `docs` and `--docs` print this guide. Help/docs/config do not start a server, create temporary files, or need API credentials. Unknown commands, duplicate commands, unsupported options, missing values, and invalid ports/repository names exit with status 2. Runtime errors exit nonzero.
+No arguments opens the fzf menu in an interactive terminal when fzf is installed; otherwise it shows help. Starting work requires `start`, `test`, or `run`. Root `npm start` and `npm run test:emulator` pass explicit actions for automation. `help`, `--help`, and `-h` print usage; `docs` and `--docs` print this guide. Help/docs/config do not start a server, create temporary files, or need API credentials. Unknown commands, duplicate commands, unsupported options, missing values, and invalid ports/repository names exit with status 2. Runtime errors exit nonzero.
 
 Both entry points source `scripts/cli-common.sh` only when invoked, and use functions with case-based dispatch. Flag/value pairs are processed with a while loop and `shift 2`; switches use `shift`. Keep that helper beside the scripts when moving them.
 

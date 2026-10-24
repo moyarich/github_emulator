@@ -6,7 +6,7 @@ branding:
 
 inputs:
   mode:
-    description: 'smoke-test (run and exit) or server (keep running for later steps)'
+    description: "smoke-test (run and exit) or server (keep running for later steps)"
     default: smoke-test
   repository:
     description: Emulated repository owner/name
@@ -24,8 +24,8 @@ inputs:
     description: Target version for smoke-test mode
     default: 1.1.0
   update-pr-body:
-    description: 'Append a version note during the smoke test: 0 or 1'
-    default: '1'
+    description: "Append a version note during the smoke test: 0 or 1"
+    default: "1"
 
 outputs:
   api-url:

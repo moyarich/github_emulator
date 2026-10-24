@@ -1,0 +1,252 @@
+name: History Cleanup . Maintenance · Rewrite Git History
+
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: Repository path to remove from all Git history
+        required: true
+        default: packages/visualize-css-colors/
+        type: string
+      dry_run:
+        description: Analyze and verify without pushing rewritten refs
+        required: true
+        default: true
+        type: boolean
+      inspect_largest_blobs:
+        description: Include the 50 largest historical blobs in the workflow summary
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: history-rewrite
+  cancel-in-progress: false
+
+jobs:
+  rewrite-history:
+    name: Rewrite Git history
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout complete repository history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validate inputs
+        env:
+          TARGET_PATH: ${{ inputs.path }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$TARGET_PATH" ]; then
+            echo "::error::path must not be empty"
+            exit 1
+          fi
+
+          case "$TARGET_PATH" in
+            /|/*|.|..|../*|*/../*|*/..)
+              echo "::error::path must be a repository-relative child path"
+              exit 1
+              ;;
+          esac
+
+      - name: Materialize remote branches locally
+        run: |
+          set -euo pipefail
+
+          current_branch="$(git branch --show-current)"
+
+          git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin |
+            grep -v '^HEAD$' |
+            while read -r branch; do
+              if [ -z "$branch" ] || [ "$branch" = "$current_branch" ]; then
+                continue
+              fi
+
+              git branch --force "$branch" "refs/remotes/origin/$branch"
+            done
+
+      - name: Install git-filter-repo
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user git-filter-repo
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Report repository size before rewrite
+        run: |
+          {
+            echo "## Git history cleanup"
+            echo
+            echo "### Before rewrite"
+            echo
+            echo '~~~text'
+            git count-objects -vH
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Rewrite history
+        env:
+          TARGET_PATH: ${{ inputs.path }}
+        run: |
+          set -euo pipefail
+
+          git filter-repo             --path "$TARGET_PATH"             --invert-paths             --force
+
+      - name: Verify removed path
+        env:
+          TARGET_PATH: ${{ inputs.path }}
+        run: |
+          set -euo pipefail
+
+          if git rev-list --objects --all | grep -F -- "$TARGET_PATH"; then
+            echo "::error::Historical objects still reference $TARGET_PATH"
+            exit 1
+          fi
+
+          echo "Verified: no reachable Git objects reference $TARGET_PATH"
+
+      - name: Repack rewritten repository
+        run: |
+          set -euo pipefail
+          git reflog expire --expire=now --all || true
+          git gc --prune=now --aggressive
+
+      - name: Report repository size after rewrite
+        env:
+          TARGET_PATH: ${{ inputs.path }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo
+            echo "### After rewrite"
+            echo
+            echo "| Setting | Value |"
+            echo "| --- | --- |"
+            printf '| Removed path | `%s` |\n' "$TARGET_PATH"
+            printf '| Dry run | `%s` |\n' "$DRY_RUN"
+            echo
+            echo '~~~text'
+            git count-objects -vH
+            echo '~~~'
+            echo
+            echo "### Reachable blob totals"
+            echo
+            echo '~~~text'
+            git rev-list --objects --all |
+              git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' |
+              awk '$1 == "blob" { count += 1; bytes += $3 } END { printf "blob-count: %d\nblob-bytes: %d\n", count, bytes }'
+            echo '~~~'
+            echo
+            echo "### Historical size by top-level path"
+            echo
+            echo '~~~text'
+            git rev-list --objects --all |
+              git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' |
+              awk '
+                $1 == "blob" {
+                  path = $4
+                  if (path == "") next
+                  split(path, parts, "/")
+                  key = (index(path, "/") ? parts[1] "/" : path)
+                  bytes[key] += $3
+                  count[key] += 1
+                }
+                END {
+                  for (key in bytes) {
+                    printf "%12d %8d %s\n", bytes[key], count[key], key
+                  }
+                }
+              ' |
+              sort -nr |
+              sed -n '1,50p'
+            echo '~~~'
+            echo
+            echo "### Historical size by extension"
+            echo
+            echo '~~~text'
+            git rev-list --objects --all |
+              git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' |
+              awk '
+                $1 == "blob" {
+                  path = $4
+                  if (path == "") next
+                  name = path
+                  sub(/^.*\//, "", name)
+
+                  if (name !~ /\./ || name ~ /^\.[^.]+$/) {
+                    ext = "[no extension]"
+                  } else {
+                    ext = name
+                    sub(/^.*\./, ".", ext)
+                    ext = tolower(ext)
+                  }
+
+                  bytes[ext] += $3
+                  count[ext] += 1
+                }
+                END {
+                  for (ext in bytes) {
+                    printf "%12d %8d %s\n", bytes[ext], count[ext], ext
+                  }
+                }
+              ' |
+              sort -nr |
+              sed -n '1,50p'
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Inspect largest historical blobs
+        if: ${{ inputs.inspect_largest_blobs }}
+        run: |
+          {
+            echo
+            echo "### Largest historical blobs"
+            echo
+            echo '~~~text'
+            git rev-list --objects --all |
+              git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' |
+              sed -n 's/^blob //p' |
+              sort -k2nr |
+              sed -n '1,50p'
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore origin
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          set -euo pipefail
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Push rewritten branches
+        if: ${{ inputs.dry_run == false }}
+        run: git push --force --all origin
+
+      - name: Push rewritten tags
+        if: ${{ inputs.dry_run == false }}
+        run: git push --force --tags origin
+
+      - name: Final summary
+        if: always()
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo
+            echo "---"
+            echo
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Dry run only: GitHub refs were not changed."
+            else
+              echo "Rewritten branches and tags were force-pushed."
+              echo
+              echo "Existing clones should be discarded and re-cloned."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

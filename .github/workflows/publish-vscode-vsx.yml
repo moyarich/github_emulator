@@ -1,0 +1,76 @@
+name: Publish VS Code extension
+
+run-name: >-
+  VSIX · ${{ inputs.package }} · ${{ inputs.registry }} · dry-run=${{ inputs.dry-run
+  }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: VS Code extension directory (one extension per run)
+        required: true
+        type: string
+        default: .
+      registry:
+        description: Extension registry
+        type: choice
+        options: [openvsx, marketplace, all]
+        default: all
+      registries-file:
+        description: Optional caller registry YAML file
+        type: string
+        default: ""
+      version:
+        description: Exact extension version (empty uses package.json)
+        type: string
+        default: ""
+      release-tag:
+        description: Existing release tag (empty uses <package>@<version>, or
+          v<version> for root)
+        type: string
+        default: ""
+      attach-release-asset:
+        description: Attach packaged VSIX to existing GitHub Release on live
+          publish
+        type: boolean
+        default: true
+      dry-run:
+        description: Preview packaging without publishing or release mutation
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  dispatch-input-summary:
+    name: "job: Workflow parameters"
+    permissions:
+      contents: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_dispatch-input-summary.yml@main
+    with:
+      parameters-json: ${{ github.event_name == 'workflow_dispatch' &&
+        toJSON(inputs) || '{}' }}
+      heading: "vscode-publish · Run parameters"
+
+  publish:
+    permissions:
+      contents: write
+      packages: read
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_vscode-publish.yml@main
+    with:
+      package-directory: ${{ inputs.package }}
+      target-branch: ${{ github.ref_name }}
+      install-command: npm ci --include=optional
+      check-command: npm run build --if-present
+      artifact-glob: ""
+      artifact-name: extension-vsix
+      registry: ${{ inputs.registry }}
+      registries-file: ${{ inputs.registries-file }}
+      version: ${{ inputs.version }}
+      release-tag-prefix: ${{ inputs.package == '.' && 'v' || format('{0}@',
+        inputs.package) }}
+      release-tag: ${{ inputs.release-tag }}
+      attach-release-asset: ${{ inputs.attach-release-asset }}
+      dry-run: ${{ inputs.dry-run }}
+    secrets: inherit
