@@ -22,13 +22,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build and run Docker smoke test
-        run: docker compose run --build --rm smoke-test
-
-      - name: Show container logs on failure
-        if: failure()
-        run: docker compose logs --no-color
-
-      - name: Clean up containers
-        if: always()
-        run: docker compose down --remove-orphans
+      - name: Run Docker smoke-test action
+        uses: ./
+        with:
+          update-pr-body: '1'

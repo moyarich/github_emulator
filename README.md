@@ -289,6 +289,63 @@ bash scripts/start-emulator.sh menu
 
 No arguments opens the fzf menu in an interactive terminal when available; otherwise it shows help. Use explicit `start` or `test` actions for automation. Help and configuration commands do not start the emulator. Options accept multiple flag/value pairs, such as `start --port 4010 --repo moya/demo`; see the CLI guide. Sourcing these files only defines entry functions, whose execution is scoped to a subshell.
 
+## Use as a GitHub Action
+
+The root `action.yml` packages the Docker image as a reusable composite action. It builds the selected Dockerfile target and runs it on a Linux runner with Docker. No host Node/npm, act, GitHub credentials, or HTTPS proxy is needed for these tests. It uses only the local test token and a disposable seeded repository.
+
+In this repository, after checkout:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - name: Run the Docker release test
+    uses: ./
+    with:
+      mode: smoke-test
+      new-version: 2.0.0
+      update-pr-body: '1'
+```
+
+To keep the API running for subsequent steps:
+
+```yaml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start local GitHub API
+        id: emulator
+        uses: ./
+        with:
+          mode: server
+      - name: Query emulator
+        env:
+          API: ${{ steps.emulator.outputs.api-url }}
+          GH_TOKEN: local-test-token
+        run: gh api "$API/repos/moyarich/release-smoke-test"
+      - name: Clean up
+        if: always() && steps.emulator.outputs.container-id != ''
+        env:
+          CONTAINER_ID: ${{ steps.emulator.outputs.container-id }}
+        run: docker rm --force "$CONTAINER_ID"
+```
+
+Server mode binds a randomly assigned loopback port to avoid collisions. The `api-url` output is reachable from runner-host steps in the same job; it is not a public URL or automatically reachable from another container/job. The action seeds package version `old-version` and leaves the server running until your cleanup step. Smoke-test mode runs and exits, removing its container automatically. Failed server startup also removes its container.
+
+| Input | Default | Purpose |
+| --- | --- | --- |
+| `mode` | `smoke-test` | `smoke-test` or `server` |
+| `repository` | `moyarich/release-smoke-test` | Emulated owner/repository |
+| `base-branch` | `main` | Seeded branch |
+| `manifest-path` | `packages/core/package.json` | Package manifest |
+| `old-version` | `1.0.0` | Seeded version |
+| `new-version` | `1.1.0` | Smoke-test target version |
+| `update-pr-body` | `'1'` | Append the version note (`'0'` disables it) |
+
+The workflow `.github/workflows/emulator.yml` tests both modes on pushes, PRs, and manual runs. The merged-PR workflow also uses the action. To call it from another repository after publishing this repository to GitHub, replace `uses: ./` with `uses: moyarich/github_emulator@main` (pin a commit SHA for reproducible runs). This works because the build context is the action's own directory, independent of the caller's checkout. For self-hosted Linux runners, Docker and curl must be available; querying with gh requires gh there too.
+
 ## Tools used
 
 | Tool | Purpose | Where it is needed |

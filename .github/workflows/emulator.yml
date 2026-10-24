@@ -1,0 +1,37 @@
+name: Test emulator action
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run release smoke test
+        uses: ./
+        with:
+          new-version: 2.0.0
+      - name: Start emulator for subsequent steps
+        id: github
+        uses: ./
+        with:
+          mode: server
+      - name: Query the seeded repository
+        env:
+          API: ${{ steps.github.outputs.api-url }}
+          GH_TOKEN: local-test-token
+        run: gh api "$API/repos/moyarich/release-smoke-test" --jq .full_name
+      - name: Stop emulator
+        if: always() && steps.github.outputs.container-id != ''
+        env:
+          EMULATOR_CONTAINER: ${{ steps.github.outputs.container-id }}
+        run: docker rm --force "$EMULATOR_CONTAINER"

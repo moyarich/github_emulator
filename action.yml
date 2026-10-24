@@ -1,0 +1,104 @@
+name: Local GitHub emulator
+description: Run the Docker release smoke test or start a seeded GitHub API for later workflow steps.
+branding:
+  icon: server
+  color: blue
+
+inputs:
+  mode:
+    description: 'smoke-test (run and exit) or server (keep running for later steps)'
+    default: smoke-test
+  repository:
+    description: Emulated repository owner/name
+    default: moyarich/release-smoke-test
+  base-branch:
+    description: Seeded base branch
+    default: main
+  manifest-path:
+    description: Seeded package manifest path
+    default: packages/core/package.json
+  old-version:
+    description: Initial package version
+    default: 1.0.0
+  new-version:
+    description: Target version for smoke-test mode
+    default: 1.1.0
+  update-pr-body:
+    description: 'Append a version note during the smoke test: 0 or 1'
+    default: '1'
+
+outputs:
+  api-url:
+    description: HTTP API URL on the runner (server mode only)
+    value: ${{ steps.emulator.outputs.api-url }}
+  container-id:
+    description: Container to remove in an always() cleanup step (server mode only)
+    value: ${{ steps.emulator.outputs.container-id }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build and run emulator Docker image
+      id: emulator
+      shell: bash
+      env:
+        ACTION_ROOT: ${{ github.action_path }}
+        EMULATOR_MODE: ${{ inputs.mode }}
+        REPO: ${{ inputs.repository }}
+        BASE_BRANCH: ${{ inputs.base-branch }}
+        MANIFEST_PATH: ${{ inputs.manifest-path }}
+        OLD_VERSION: ${{ inputs.old-version }}
+        NEW_VERSION: ${{ inputs.new-version }}
+        UPDATE_PR_BODY: ${{ inputs.update-pr-body }}
+      run: |
+        set -euo pipefail
+        case "$EMULATOR_MODE" in
+          smoke-test|server) ;;
+          *) echo 'mode must be smoke-test or server' >&2; exit 2 ;;
+        esac
+        case "$UPDATE_PR_BODY" in
+          0|1) ;;
+          *) echo 'update-pr-body must be 0 or 1' >&2; exit 2 ;;
+        esac
+        [[ "$RUNNER_OS" == Linux ]] || { echo 'This action requires a Linux runner with Docker.' >&2; exit 2; }
+        docker info >/dev/null
+        image="github-emulator-action:${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}-${RANDOM}"
+        docker build --file "$ACTION_ROOT/docker/Dockerfile" \
+          --target "$EMULATOR_MODE" --tag "$image" "$ACTION_ROOT"
+        docker_options=(--init
+          --env REPO --env BASE_BRANCH --env MANIFEST_PATH
+          --env OLD_VERSION --env NEW_VERSION --env UPDATE_PR_BODY
+          --env TOKEN=local-test-token --env RUN_ACT=0 --env KEEP_EMULATOR=0)
+        if [[ "$EMULATOR_MODE" == smoke-test ]]; then
+          docker run --rm "${docker_options[@]}" "$image"
+          exit 0
+        fi
+
+        container_id=''
+        keep_server=false
+        cleanup_failed_start() {
+          if [[ -n "$container_id" && "$keep_server" != true ]]; then
+            docker logs "$container_id" || true
+            docker rm --force "$container_id" >/dev/null || true
+          fi
+        }
+        trap cleanup_failed_start EXIT
+        container_id=$(docker run --detach "${docker_options[@]}" \
+          --publish 127.0.0.1::4001 "$image")
+        address=$(docker port "$container_id" 4001/tcp)
+        api_url="http://$address"
+        ready=false
+        for ((attempt=0; attempt<60; attempt++)); do
+          if curl --fail --silent --max-time 2 --output /dev/null \
+            --header 'Authorization: Bearer local-test-token' \
+            "$api_url/repos/$REPO/contents/$MANIFEST_PATH"; then
+            ready=true
+            break
+          fi
+          [[ "$(docker inspect --format '{{.State.Running}}' "$container_id")" == true ]] || break
+          sleep 1
+        done
+        [[ "$ready" == true ]] || { echo 'Emulator failed to become ready.' >&2; exit 1; }
+        printf 'api-url=%s\ncontainer-id=%s\n' "$api_url" "$container_id" >> "$GITHUB_OUTPUT"
+        printf 'GitHub emulator ready: %s/repos/%s\n' "$api_url" "$REPO"
+        keep_server=true
