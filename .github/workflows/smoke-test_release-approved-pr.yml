@@ -1,0 +1,34 @@
+name: Release PR smoke test
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-smoke-test:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UPDATE_PR_BODY: '1'
+      RUN_ACT: '0'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build and run Docker smoke test
+        run: docker compose run --build --rm smoke-test
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Clean up containers
+        if: always()
+        run: docker compose down --remove-orphans

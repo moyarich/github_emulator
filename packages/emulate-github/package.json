@@ -1,0 +1,18 @@
+{
+  "name": "@moya/emulate-github",
+  "version": "1.0.0",
+  "description": "Local GitHub release pull request smoke test",
+  "scripts": {
+    "start": "bash ../../scripts/start-emulator.sh start",
+    "test": "bash ../../scripts/github_emulator.sh test"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "dependencies": {
+    "emulate": "0.12.3"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=24"
+  }
+}
