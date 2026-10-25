@@ -36,7 +36,8 @@ FROM tools AS dependencies
 WORKDIR /app
 
 # Install the standalone runtime directly; no project manifests are needed.
-RUN npm install --no-audit --no-fund emulate@0.12.3 portless@0.15.11
+RUN npm install --no-audit --no-fund emulate portless yaml ajv
+
 # Install the standalone act CLI; act-latest supplies its runner environment.
 RUN architecture="$(uname -m)" \
   && case "$architecture" in aarch64|arm64) architecture=arm64 ;; x86_64) architecture=x86_64 ;; *) exit 1 ;; esac \
