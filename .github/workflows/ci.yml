@@ -1,31 +1,5 @@
 name: CI
 on:
-  push:
-    branches: [main]
-  pull_request:
-    paths:
-      - "src/**"
-      - "packages/**"
-      - "apps/**"
-      - "actions/**"
-      - "tests/**"
-      - ".storybook/**"
-      - "**/.storybook/**"
-      - "**/*.stories.*"
-      - "**/*.story.*"
-      - "**/*.spec.*"
-      - "**/*.specs.*"
-      - "**/playwright.config.*"
-      - "playwright.config.*"
-      - "vitest.config.*"
-      - "package.json"
-      - "package-lock.json"
-      - "eslint.config.*"
-      - ".prettierignore"
-      - "tsconfig*.json"
-      - ".github/workflows/**"
-      - ".github/actionlint.yaml"
-      - ".github/check-dist-config.yml"
   workflow_dispatch:
     inputs:
       checkout-sha:
