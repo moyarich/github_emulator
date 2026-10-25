@@ -1,5 +1,24 @@
 name: CI / Storybook
 on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "src/**"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/ci_storybook.yml"
+  pull_request:
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "src/**"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/ci_storybook.yml"
   workflow_call:
     inputs:
       checkout-sha:
