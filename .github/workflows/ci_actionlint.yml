@@ -4,21 +4,11 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/**"
-      - "src/**"
-      - "tests/**"
-      - "package.json"
-      - "package-lock.json"
-      - "vite.config.ts"
-      - "tsconfig.json"
+      - ".github/actionlint.yaml"
   pull_request:
     paths:
       - ".github/workflows/**"
-      - "src/**"
-      - "tests/**"
-      - "package.json"
-      - "package-lock.json"
-      - "vite.config.ts"
-      - "tsconfig.json"
+      - ".github/actionlint.yaml"
   workflow_call:
   workflow_dispatch:
 concurrency:
