@@ -15,12 +15,12 @@ npm start
 The server starts in the foreground, seeds a repository and package, and prints access instructions. Ctrl+C stops it; repository state resets on restart. It listens on all interfaces by default; use `EMU_HOST=127.0.0.1` to restrict local access. Keep a second terminal open for API commands.
 
 ```sh
-EMU_HOST=127.0.0.1 EMU_PORT=4010 REPO=moyarich/demo \
+EMU_HOST=127.0.0.1 EMULATE_PORT=4010 REPO=moyarich/demo \
   bash scripts/start-emulator.sh start
 GH_TOKEN=local-test-token gh api http://localhost:4010/repos/moyarich/demo
 ```
 
-Server environment: `EMU_PORT`, `EMU_HOST`, `REPO`, `TOKEN`, `BASE_BRANCH`, `MANIFEST_PATH`, `OLD_VERSION`, `PUBLIC_API`, `HOST_PORT`, and `GH_HOST`. `--help` lists defaults; `config` shows effective values without printing the token.
+Server environment: `EMULATE_PORT`, `EMU_HOST`, `REPO`, `TOKEN`, `BASE_BRANCH`, `MANIFEST_PATH`, `OLD_VERSION`, `PUBLIC_API`, `HOST_PORT`, and `GH_HOST`. `--help` lists defaults; `config` shows effective values without printing the token.
 
 ## Release smoke test
 

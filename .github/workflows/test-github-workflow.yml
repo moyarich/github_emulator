@@ -1,0 +1,117 @@
+name: Test a workflow against mock GitHub
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow:
+        description: Existing workflow file to run unchanged
+        type: string
+        default: .github/workflows/release-approved-pr.yml
+        required: true
+      event:
+        description: Event to replay
+        type: choice
+        options: [pull_request, push, workflow_dispatch]
+        default: pull_request
+      event-file:
+        description: Repository-relative event JSON fixture
+        type: string
+        required: true
+      seed-file:
+        description: Optional repository-relative GitHub YAML/JSON seed fixture
+        type: string
+        default: ""
+      repository:
+        description: Mock owner/repository; empty uses this repository
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: mock-workflow-${{ github.run_id }}-${{ github.run_attempt }}
+      EMULATOR_PORT: "0"
+      HTTPS_PORT: "0"
+      TOKEN: local-workflow-test-token
+      REPO: ${{ inputs.repository || github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install act
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          directory="$RUNNER_TEMP/act"
+          mkdir -p "$directory"
+          gh release download v0.2.89 --repo nektos/act --pattern act_Linux_x86_64.tar.gz --dir "$directory"
+          tar -xzf "$directory/act_Linux_x86_64.tar.gz" -C "$directory" act
+          echo "$directory" >> "$GITHUB_PATH"
+      - name: Run selected workflow against the mock
+        env:
+          SELECTED_WORKFLOW: ${{ inputs.workflow }}
+          SELECTED_EVENT: ${{ inputs.event }}
+          EVENT_FIXTURE: ${{ inputs.event-file }}
+          SEED_FIXTURE: ${{ inputs.seed-file }}
+        run: |
+          set -euo pipefail
+          [[ "$SELECTED_WORKFLOW" == .github/workflows/*.yml || "$SELECTED_WORKFLOW" == .github/workflows/*.yaml ]]
+          [[ "$SELECTED_WORKFLOW" != .github/workflows/test-github-workflow.yml ]]
+          [[ -f "$SELECTED_WORKFLOW" && -f "$EVENT_FIXTURE" ]]
+          compose=(docker compose -p "$COMPOSE_PROJECT_NAME" -f packages/emulate-github/compose.yaml)
+          cat > "$RUNNER_TEMP/mock-service.yaml" <<'OVERRIDE'
+          services:
+            github-emulator:
+              environment:
+                BOOTSTRAP_REPOSITORY: "0"
+              healthcheck:
+                test: [CMD-SHELL, 'curl -fsS -o /dev/null -H "Authorization: Bearer $$TOKEN" http://127.0.0.1:4001/repos/$$REPO']
+          OVERRIDE
+          compose+=(-f "$RUNNER_TEMP/mock-service.yaml")
+          if [[ -n "$SEED_FIXTURE" ]]; then
+            [[ -f "$SEED_FIXTURE" ]]
+            MOCK_SEED_PATH="$(realpath "$SEED_FIXTURE")"
+            export MOCK_SEED_PATH
+            cat > "$RUNNER_TEMP/mock-seed.yaml" <<'OVERRIDE'
+          services:
+            github-emulator:
+              environment:
+                CONFIG_FILE: /fixtures/github.yaml
+              volumes:
+                - type: bind
+                  source: ${MOCK_SEED_PATH}
+                  target: /fixtures/github.yaml
+                  read_only: true
+              healthcheck:
+                test: [CMD-SHELL, 'curl -fsS -o /dev/null -H "Authorization: Bearer $$TOKEN" http://127.0.0.1:4001/repos/$$REPO']
+          OVERRIDE
+            compose+=(-f "$RUNNER_TEMP/mock-seed.yaml")
+          fi
+          "${compose[@]}" up --build --detach --wait
+          image="$("${compose[@]}" images -q github-emulator)"
+          env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN act "$SELECTED_EVENT" \
+            --workflows "$SELECTED_WORKFLOW" --eventpath "$EVENT_FIXTURE" \
+            --github-instance github.emulator.test \
+            --replace-ghe-action-with-github-com '*' \
+            --network "${COMPOSE_PROJECT_NAME}_default" \
+            --container-options "--volume ${COMPOSE_PROJECT_NAME}_proxy-data:/emulator-proxy-data:ro" \
+            --env SSL_CERT_FILE=/emulator-proxy-data/caddy/pki/authorities/local/root.crt \
+            --env NODE_EXTRA_CA_CERTS=/emulator-proxy-data/caddy/pki/authorities/local/root.crt \
+            --env GIT_SSL_CAINFO=/emulator-proxy-data/caddy/pki/authorities/local/root.crt \
+            --env GH_HOST=github.emulator.test \
+            --env GH_TOKEN="$TOKEN" --env GH_ENTERPRISE_TOKEN="$TOKEN" \
+            --secret GITHUB_TOKEN="$TOKEN" --secret _NPM_TOKEN= \
+            --secret-file /dev/null --env-file /dev/null --var-file /dev/null \
+            --platform "ubuntu-latest=$image" --pull=false
+      - name: Show emulator logs
+        if: always()
+        run: docker compose -p "$COMPOSE_PROJECT_NAME" -f packages/emulate-github/compose.yaml logs --no-color
+      - name: Remove mock services
+        if: always()
+        run: docker compose -p "$COMPOSE_PROJECT_NAME" -f packages/emulate-github/compose.yaml down --volumes

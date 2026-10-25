@@ -3,16 +3,19 @@ name: github_emulator
 services:
   github-emulator:
     build:
-      context: ./docker
-      dockerfile: Dockerfile
-      target: server
+      context: .
+      dockerfile: docker/Dockerfile
+      target: mock-github
     init: true
     ports:
       - "127.0.0.1:${EMULATOR_PORT:-4001}:4001"
     environment:
       &emulator-environment # Container networking; EMULATOR_PORT changes the published host port.
-      EMU_PORT: "4001"
+      EMULATE_PORT: "4001"
+      EMULATE_BASE_URL: "${EMULATE_BASE_URL:-}"
+      USE_PORTLESS: "${USE_PORTLESS:-0}"
       EMU_HOST: "0.0.0.0"
+      EMULATOR_ENV_FILE: /config/mock.env
       API: "http://localhost:4001"
       PUBLIC_API: "http://localhost:${EMULATOR_PORT:-4001}"
       HOST_PORT: "${EMULATOR_PORT:-4001}"
@@ -34,16 +37,20 @@ services:
       UPDATE_PR_BODY: "${UPDATE_PR_BODY:-0}"
       EMU_LOG: "/tmp/emulate-github.log"
       KEEP_EMULATOR: "0"
-      # act runs on the host; it is not installed in this image.
+      # Prevent recursive act replay when running the smoke-test service.
       RUN_ACT: "0"
     volumes:
       - proxy-data:/proxy-data:ro
+      - type: bind
+        source: ${EMULATOR_CONFIG_DIR:-./.local/config}
+        target: /config
+        read_only: true
     healthcheck:
       test:
-        [
-          "CMD-SHELL",
-          'curl -fsS -o /dev/null -H "Authorization: Bearer $$TOKEN" http://127.0.0.1:4001/repos/$$REPO/contents/$$MANIFEST_PATH',
-        ]
+        - CMD
+        - bash
+        - -c
+        - 'source "/tmp/github-emulator-control-$$EMULATE_PORT/health.env" && curl -fsS -o /dev/null -H "Authorization: Bearer $$TOKEN" "$$API/repos/$$REPO"'
       interval: 5s
       timeout: 3s
       retries: 12
@@ -52,15 +59,15 @@ services:
   smoke-test:
     profiles: [test]
     build:
-      context: ./docker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: docker/Dockerfile
       target: smoke-test
     init: true
     environment:
       <<: *emulator-environment
       GH_HOST: ""
       SSL_CERT_FILE: ""
-    command: ["/usr/local/bin/github-emulator-smoke-test"]
+    command: ["/usr/local/bin/smoke-test-api.sh"]
 
   github-proxy:
     build:

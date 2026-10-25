@@ -9,9 +9,9 @@ https://github.emulator.test {
 	@graphql path /api/graphql
 	rewrite @graphql /graphql
 	handle_path /api/v3/* {
-		reverse_proxy github-emulator:4001
+		reverse_proxy {$GITHUB_UPSTREAM:github-emulator:4001}
 	}
 	handle {
-		reverse_proxy github-emulator:4001
+		reverse_proxy {$GITHUB_UPSTREAM:github-emulator:4001}
 	}
 }

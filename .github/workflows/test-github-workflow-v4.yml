@@ -1,0 +1,149 @@
+name: Mock GitHub - release event chain V4
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-inputs:
+        description: JSON overrides for release.yml inputs; other inputs use its defaults
+        type: string
+        default: '{"dry-run":false,"draft":false,"update-major-tag":false,"version-mode":"package-json","package":"packages/emulate-github"}'
+      repository:
+        description: Mock owner/repository; empty uses github.repository
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      COMPOSE_PROJECT_NAME: mock-release-${{ github.run_id }}-${{ github.run_attempt }}
+      EMULATOR_PORT: "0"
+      HTTPS_PORT: "0"
+      TOKEN: mock-token
+      REPO: ${{ inputs.repository || github.repository }}
+      BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+      SOURCE_SHA: ${{ github.sha }}
+      SOURCE_REF: ${{ github.ref }}
+      SELECTED_EVENT: workflow_dispatch
+      DISPATCH_WORKSPACE: ${{ github.workspace }}
+      DISPATCH_WORKFLOWS: .github/workflows
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build runtime
+        run: |
+          set -euo pipefail
+          image="github-emulator-test:$COMPOSE_PROJECT_NAME"
+          docker build --file dist/github-emulator/docker/Dockerfile --target mock-github --tag "$image" dist/github-emulator
+          docker compose -f dist/github-emulator/compose.yaml build github-proxy
+      - name: Fetch public reusable workflow source
+        run: |
+          set -euo pipefail
+          GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch main \
+            https://github.com/moyarich/reusable-workflows.git "$RUNNER_TEMP/mock-reusable-workflows"
+      - name: Prepare container configuration
+        run: |
+          set -euo pipefail
+          SOURCE_EVENT_FILE="$RUNNER_TEMP/mock-source-event.json"
+          MOCK_SNAPSHOT_FILE="$RUNNER_TEMP/mock-snapshot.json"
+          {
+            echo "SOURCE_EVENT_FILE=$SOURCE_EVENT_FILE"
+            echo "MOCK_SNAPSHOT_FILE=$MOCK_SNAPSHOT_FILE"
+            echo "COMPOSE_FILE=$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-release-service.yaml"
+          } >> "$GITHUB_ENV"
+          echo '::add-mask::mock-token'
+          echo '{}' > "$SOURCE_EVENT_FILE"
+          chmod 600 "$SOURCE_EVENT_FILE"
+          cat > "$RUNNER_TEMP/mock-release-service.yaml" <<'OVERRIDE'
+          services:
+            github-emulator:
+              image: github-emulator-test:${COMPOSE_PROJECT_NAME}
+              volumes:
+                - ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}
+                - ${RUNNER_TEMP}:${RUNNER_TEMP}
+              environment:
+                BOOTSTRAP_REPOSITORY: "0"
+                EMULATE_BASE_URL: https://github.emulator.test
+                GIT_CONFIG_COUNT: "1"
+                GIT_CONFIG_KEY_0: safe.directory
+                GIT_CONFIG_VALUE_0: ${GITHUB_WORKSPACE}
+            github-dispatcher:
+              volumes:
+                - ${RUNNER_TEMP}/mock-reusable-workflows:/dependencies/reusable-workflows:ro
+              image: github-emulator-test:${COMPOSE_PROJECT_NAME}
+              environment:
+                DISPATCH_IMAGE: github-emulator-test:${COMPOSE_PROJECT_NAME}
+                DISPATCH_LOCAL_REPOSITORIES: '["moyarich/reusable-workflows@main=/dependencies/reusable-workflows"]'
+          OVERRIDE
+      - name: Start mock GitHub, dispatcher, and HTTPS proxy
+        run: docker compose up --detach --wait --no-build
+      - name: Import checked-out repository without dispatching events
+        env:
+          PREPARE_PHASE: repository
+          MOCK_API_URL: http://127.0.0.1:4001
+        shell: >-
+          bash -c 'exec docker compose exec -T --workdir "$GITHUB_WORKSPACE"
+          --env PREPARE_PHASE --env MOCK_API_URL --env GITHUB_WORKSPACE
+          --env SOURCE_SHA --env SOURCE_REF --env SOURCE_EVENT_FILE
+          --env MOCK_SNAPSHOT_FILE --env SELECTED_EVENT
+          github-emulator bash --noprofile --norc -e -o pipefail "$1"' -- {0}
+        run: node dist/github-emulator/prepare-workflow.js
+      - name: Run unchanged release.yml against mock GitHub
+        env:
+          RELEASE_INPUTS_JSON: ${{ inputs.release-inputs }}
+        run: |
+          set -euo pipefail
+          docker compose exec -T --env RELEASE_INPUTS_JSON github-dispatcher \
+            node /app/dispatcher/run-workflow.ts
+      - name: Wait for workflows triggered by release API activity
+        run: |
+          set -euo pipefail
+          docker compose exec -T github-dispatcher node --input-type=module <<'JAVASCRIPT'
+          const deadline = Date.now() + 15 * 60 * 1000;
+          while (Date.now() < deadline) {
+            const response = await fetch('http://127.0.0.1:4002/_dispatcher/status', {
+              headers: { Authorization: `Bearer ${process.env.TOKEN}` },
+            });
+            if (!response.ok) throw new Error(`Dispatcher status: ${response.status}`);
+            const status = await response.json();
+            if (status.pending === 0) {
+              console.log(JSON.stringify(status));
+              if (status.failed) throw new Error('A downstream workflow failed; see dispatcher logs');
+              if (!status.accepted) throw new Error('release.yml produced no supported API events; check dry-run, draft, and selected package inputs');
+              if (!status.workflows) console.log('Mock events were emitted; no downstream workflows matched their on rules.');
+              process.exit(0);
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+          throw new Error('Timed out waiting for downstream workflows');
+          JAVASCRIPT
+      - name: Verify release.yml was not modified
+        if: always()
+        run: git diff --exit-code HEAD -- .github/workflows/release.yml
+      - name: Collect service logs
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/mock-release-service.yaml" ]]; then
+            docker compose logs --no-color | tee "$RUNNER_TEMP/mock-release.log"
+          fi
+      - name: Save dispatcher logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-release-context
+          path: ${{ runner.temp }}/mock-release.log
+          if-no-files-found: ignore
+      - name: Remove mock services and private fixtures
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/mock-release-service.yaml" ]]; then
+            docker compose down --volumes --remove-orphans
+          fi
+          rm -rf "$RUNNER_TEMP/mock-reusable-workflows"
+          rm -f "$SOURCE_EVENT_FILE" "$MOCK_SNAPSHOT_FILE" "$RUNNER_TEMP/mock-release-service.yaml"

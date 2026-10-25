@@ -29,9 +29,10 @@ NEW_VERSION=2.0.0 UPDATE_PR_BODY=1 npm run docker:test
 
 The smoke-test container is separate from the persistent emulator. A successful run exits with code 0. Commits are made before opening the PR because the pinned emulator snapshots the head commit when it creates the PR.
 
-## Use as a GitHub Action
+## Provide GitHub to a workflow
 
-Run the test on a Linux runner with Docker:
+The action supplies a mock GitHub service. The calling workflow provides its own
+fixtures and release steps; the action does not run this smoke-test scenario.
 
 ```yaml
 jobs:
@@ -39,32 +40,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: moyarich/github_emulator@main
-        with:
-          mode: smoke-test
-          new-version: 2.0.0
-          update-pr-body: "1"
+        id: emulator
+      - name: Create a release in the mock service
+        env:
+          API: ${{ steps.emulator.outputs.api-url }}
+          GH_TOKEN: ${{ steps.emulator.outputs.token }}
+          GH_ENTERPRISE_TOKEN: ${{ steps.emulator.outputs.token }}
+          REPO: ${{ steps.emulator.outputs.repository }}
+        run: |
+          gh api "$API/repos/$REPO/releases" --method POST \
+            -f tag_name=v1.0.0 -f name='Test release'
 ```
 
-Pin a commit SHA for a reproducible workflow. The action builds from its own source directory, so it does not require your repository's files.
-
-## Keep a server for later steps
-
-```yaml
-steps:
-  - uses: moyarich/github_emulator@main
-    id: emulator
-    with:
-      mode: server
-  - name: Query emulator
-    env:
-      API: ${{ steps.emulator.outputs.api-url }}
-      GH_TOKEN: local-test-token
-    run: gh api "$API/repos/moyarich/release-smoke-test"
-  - name: Clean up
-    if: always() && steps.emulator.outputs.container-id != ''
-    env:
-      CONTAINER_ID: ${{ steps.emulator.outputs.container-id }}
-    run: docker rm --force "$CONTAINER_ID"
-```
-
-The server URL is local to the runner host and the same job. The action now removes server containers automatically in its post-job step; the explicit cleanup shown above is optional. Smoke-test mode removes its own container. See the GitHub Action guide for client configuration and custom fixtures.
+Pin a version or commit SHA for reproducibility. The mock service is available to
+later steps in the same job and is automatically removed in the action's post step.
+Existing workflows must use the mock API through their supported client settings.

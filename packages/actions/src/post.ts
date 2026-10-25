@@ -1,8 +1,11 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { execute, removeContainer } from "./shared.mjs";
+import { execute, removeContainer } from "./shared.js";
 
-export async function cleanup(environment = process.env, command = execute) {
+export async function cleanup(
+  environment: NodeJS.ProcessEnv = process.env,
+  command: typeof execute = execute,
+) {
   const container = environment["STATE_container-id"];
   if (!container) return;
   // Callers may also choose to remove the container explicitly.

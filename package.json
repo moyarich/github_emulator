@@ -15,7 +15,7 @@
     "lint:fix": "npm run lint -- --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "checks": "npm run check:actions && npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "checks": "npm run build:actions && npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
     "pack:check": "npm pack --workspaces --dry-run",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test",
@@ -31,7 +31,7 @@
     "docker:cert": "npm run docker:cert --workspace=@moya/emulate-github",
     "test:emulator": "npm run test --workspace=@moya/emulate-github",
     "build:actions": "npm run build --workspace=@moyarich/github-emulator-actions",
-    "check:actions": "npm run check:dist --workspace=@moyarich/github-emulator-actions"
+    "docker:reload": "npm run docker:reload --workspace=@moya/emulate-github"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

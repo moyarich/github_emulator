@@ -1,0 +1,10 @@
+**
+!Dockerfile
+!docker/
+!docker/Dockerfile
+!scripts/
+!scripts/start-emulator.sh
+!scripts/smoke-test-api.sh
+!scripts/smoke-test-github-cli.sh
+!dispatcher/
+!dispatcher/**

@@ -22,12 +22,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Check generated Marketplace distribution
-        run: node packages/actions/scripts/build.mjs --check
-      - name: Verify Docker action smoke test
+      - name: Build Marketplace distribution
+        run: |
+          npm ci
+          npm run build:actions
+      - name: Verify emulator setup
         uses: ./
-        with:
-          mode: smoke-test
       - name: Create draft release for Marketplace review
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,0 +1,270 @@
+name: Mock GitHub - via Docker
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow:
+        description: Path to any existing workflow file to run unchanged
+        type: string
+        default: .github/workflows/release-approved-pr.yml
+        required: true
+      pull-request:
+        description: Optional real PR metadata override; empty creates a synthetic mock PR
+        type: string
+        default: ""
+      event-file:
+        description: Optional event JSON override relative to the checkout
+        type: string
+        default: ""
+      seed-file:
+        description: Optional mock GitHub YAML/JSON seed relative to the checkout
+        type: string
+        default: ""
+      repository:
+        description: Mock owner/repository; empty uses github.repository
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: mock-workflow-${{ github.run_id }}-${{ github.run_attempt }}
+      EMULATOR_PORT: "0"
+      HTTPS_PORT: "0"
+      TOKEN: mock-token
+      REPO: ${{ inputs.repository || github.repository }}
+      BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+      SOURCE_REPOSITORY: ${{ github.repository }}
+      SOURCE_SHA: ${{ github.sha }}
+      SOURCE_REF: ${{ github.ref }}
+      SELECTED_WORKFLOW: ${{ inputs.workflow }}
+      SOURCE_EVENT_NAME: ${{ github.event_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build runtime
+        run: |
+          set -euo pipefail
+          image="github-emulator-test:$COMPOSE_PROJECT_NAME"
+          docker build --file dist/github-emulator/docker/Dockerfile --target mock-github --tag "$image" dist/github-emulator
+          docker compose -p "$COMPOSE_PROJECT_NAME" -f dist/github-emulator/compose.yaml build github-proxy
+      - name: Detect workflow trigger
+        run: |
+          set -euo pipefail
+          [[ -f "$SELECTED_WORKFLOW" ]]
+          image="github-emulator-test:$COMPOSE_PROJECT_NAME"
+          docker run --rm -i --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
+            --workdir "$GITHUB_WORKSPACE" --env SELECTED_WORKFLOW --env SOURCE_EVENT_NAME \
+            --entrypoint python3 "$image" - <<'PYTHON' >> "$GITHUB_ENV"
+          import os
+          import re
+          from ruamel.yaml import YAML
+
+          with open(os.environ["SELECTED_WORKFLOW"], encoding="utf-8") as stream:
+              workflow = YAML(typ="safe").load(stream)
+          triggers = workflow.get("on")
+          if isinstance(triggers, str):
+              triggers = {triggers: {}}
+          elif isinstance(triggers, list):
+              triggers = {name: {} for name in triggers}
+          if not isinstance(triggers, dict) or not triggers:
+              raise SystemExit("The selected workflow must declare an on trigger")
+          candidates = [name for name in triggers if name != "workflow_call"]
+          if not candidates:
+              raise SystemExit("Select a workflow with a replayable event; workflow_call requires a caller")
+          source = os.environ["SOURCE_EVENT_NAME"]
+          event = source if source in candidates else candidates[0]
+          settings = triggers[event] or {}
+          types = settings.get("types", []) if isinstance(settings, dict) else []
+          print(f"SELECTED_EVENT={event}")
+          if types:
+              print(f"SELECTED_ACTIVITY={types[0]}")
+          if event == "pull_request":
+              conditions = " ".join(str(job.get("if", "")) for job in workflow.get("jobs", {}).values())
+              prefix = re.search(r"startsWith\(\s*github\.event\.pull_request\.head\.ref\s*,\s*(['\"])(.*?)\1", conditions)
+              print(f"MOCK_PR_HEAD={prefix.group(2) + 'mock' if prefix else 'mock/workflow-test'}")
+              merged = "false" if re.search(r"pull_request\.merged\s*==\s*false", conditions) else "true"
+              print(f"MOCK_PR_MERGED={merged}")
+          branches = settings.get("branches", []) if isinstance(settings, dict) else []
+          literal = next((branch for branch in branches if not any(char in branch for char in "*?![")), None)
+          if literal:
+              print(f"BASE_BRANCH={literal}")
+              print(f"SOURCE_REF=refs/heads/{literal}")
+          PYTHON
+      - name: Prepare source event
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REAL_API_URL: ${{ github.api_url }}
+          PR_NUMBER: ${{ inputs.pull-request }}
+          EVENT_FIXTURE: ${{ inputs.event-file }}
+        run: |
+          set -euo pipefail
+          [[ -f "$SELECTED_WORKFLOW" ]]
+          echo "::add-mask::$TOKEN"
+          source_event="$RUNNER_TEMP/mock-source-event.json"
+          if [[ -n "$EVENT_FIXTURE" ]]; then
+            cp -- "$EVENT_FIXTURE" "$source_event"
+          elif [[ "$SELECTED_EVENT" == pull_request && -n "$PR_NUMBER" ]]; then
+            [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'PR number must be a positive integer.' >&2; exit 2; }
+            gh api "$REAL_API_URL/repos/$SOURCE_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/source-pr.json"
+            jq --slurpfile pr "$RUNNER_TEMP/source-pr.json" \
+              '.pull_request = $pr[0] | .number = $pr[0].number | .action = (if $pr[0].state == "closed" then "closed" else "opened" end)' \
+              "$GITHUB_EVENT_PATH" > "$source_event"
+          elif [[ "$SELECTED_EVENT" == pull_request ]]; then
+            jq --arg repository "$REPO" --arg base "$BASE_BRANCH" \
+              --arg head "${MOCK_PR_HEAD:-mock/workflow-test}" \
+              --arg action "${SELECTED_ACTIVITY:-opened}" \
+              --argjson merged "${MOCK_PR_MERGED:-false}" '
+                ($repository | split("/")) as $name |
+                {full_name: $repository, name: $name[1], owner: {login: $name[0]}, default_branch: $base} as $repo |
+                .action = $action | .number = 1 | .repository = $repo |
+                .pull_request = {
+                  number: 1, title: "Mock workflow pull request", body: "Synthetic PR for local workflow testing",
+                  state: (if $action == "closed" then "closed" else "open" end),
+                  merged: ($action == "closed" and $merged),
+                  head: {ref: $head, repo: $repo}, base: {ref: $base, repo: $repo}
+                }
+              ' "$GITHUB_EVENT_PATH" > "$source_event"
+          else
+            cp -- "$GITHUB_EVENT_PATH" "$source_event"
+          fi
+          if [[ -n "${SELECTED_ACTIVITY:-}" ]]; then
+            jq --arg action "$SELECTED_ACTIVITY" '.action = $action' "$source_event" > "$source_event.tmp"
+            mv "$source_event.tmp" "$source_event"
+          fi
+          chmod 600 "$source_event"
+          {
+            echo "SOURCE_EVENT_FILE=$source_event"
+            echo "MOCK_EVENT_FILE=$RUNNER_TEMP/mock-event.json"
+            echo "MOCK_SNAPSHOT_FILE=$RUNNER_TEMP/mock-snapshot.json"
+          } >> "$GITHUB_ENV"
+      - name: Prepare container configuration
+        env:
+          SEED_FIXTURE: ${{ inputs.seed-file }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/mock-service.yaml" <<'OVERRIDE'
+          services:
+            github-emulator:
+              image: github-emulator-test:${COMPOSE_PROJECT_NAME}
+              volumes:
+                - ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}
+                - ${RUNNER_TEMP}:${RUNNER_TEMP}
+                - /var/run/docker.sock:/var/run/docker.sock
+              environment:
+                GIT_CONFIG_COUNT: "1"
+                GIT_CONFIG_KEY_0: safe.directory
+                GIT_CONFIG_VALUE_0: ${GITHUB_WORKSPACE}
+                BOOTSTRAP_REPOSITORY: "0"
+                EMULATE_BASE_URL: https://github.emulator.test
+              healthcheck:
+                test: [CMD-SHELL, 'curl -fsS -o /dev/null -H "Authorization: Bearer $$TOKEN" http://127.0.0.1:4001/repos/$$REPO']
+          OVERRIDE
+          image="github-emulator-test:$COMPOSE_PROJECT_NAME"
+          if [[ -n "$SEED_FIXTURE" ]]; then
+            [[ -f "$SEED_FIXTURE" ]]
+            MOCK_SEED_PATH="$RUNNER_TEMP/mock-seed.yaml"
+            export MOCK_SEED_PATH
+            docker run --rm --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
+              --env REPO --env TOKEN --env BASE_BRANCH --entrypoint bash "$image" -c '
+                source /app/scripts/start-emulator.sh
+                SEED_SOURCE=""
+                run_dir="$(mktemp -d)"
+                trap '\''rm -rf "$run_dir"'\'' EXIT
+                emulator_prepare_seed "$run_dir/emulate.config.yaml" "$1"
+                cat "$run_dir/emulate.config.yaml"
+              ' bash "$GITHUB_WORKSPACE/$SEED_FIXTURE" > "$MOCK_SEED_PATH"
+            chmod 600 "$MOCK_SEED_PATH"
+            cat > "$RUNNER_TEMP/mock-seed-override.yaml" <<'OVERRIDE'
+          services:
+            github-emulator:
+              environment:
+                CONFIG_FILE: /fixtures/github.yaml
+              volumes:
+                - type: bind
+                  source: ${MOCK_SEED_PATH}
+                  target: /fixtures/github.yaml
+                  read_only: true
+          OVERRIDE
+            echo "MOCK_SEED_PATH=$MOCK_SEED_PATH" >> "$GITHUB_ENV"
+          fi
+      - name: Start mock GitHub and HTTPS proxy
+        run: |
+          set -euo pipefail
+          compose=(docker compose -p "$COMPOSE_PROJECT_NAME" -f dist/github-emulator/compose.yaml
+            -f "$RUNNER_TEMP/mock-service.yaml")
+          if [[ -n "${MOCK_SEED_PATH:-}" ]]; then
+            compose+=(-f "$RUNNER_TEMP/mock-seed-override.yaml")
+          fi
+          "${compose[@]}" up --detach --wait --no-build
+      - name: Import checked-out repository
+        env:
+          PREPARE_PHASE: repository
+          MOCK_API_URL: http://127.0.0.1:4001
+        shell: >-
+          bash -c 'exec docker compose -p "$COMPOSE_PROJECT_NAME" -f dist/github-emulator/compose.yaml
+          exec -T --workdir "$GITHUB_WORKSPACE"
+          --env PREPARE_PHASE --env MOCK_API_URL --env GITHUB_WORKSPACE
+          --env SOURCE_SHA --env SOURCE_REF --env SOURCE_EVENT_FILE
+          --env MOCK_EVENT_FILE --env MOCK_SNAPSHOT_FILE --env SELECTED_EVENT
+          github-emulator bash --noprofile --norc -e -o pipefail "$1"' -- {0}
+        run: |
+          node dist/github-emulator/prepare-workflow.js
+      - name: Create replay event
+        env:
+          PREPARE_PHASE: event
+          MOCK_API_URL: http://127.0.0.1:4001
+        shell: >-
+          bash -c 'exec docker compose -p "$COMPOSE_PROJECT_NAME" -f dist/github-emulator/compose.yaml
+          exec -T --workdir "$GITHUB_WORKSPACE"
+          --env PREPARE_PHASE --env MOCK_API_URL --env GITHUB_WORKSPACE
+          --env SOURCE_SHA --env SOURCE_REF --env SOURCE_EVENT_FILE
+          --env MOCK_EVENT_FILE --env MOCK_SNAPSHOT_FILE --env SELECTED_EVENT
+          github-emulator bash --noprofile --norc -e -o pipefail "$1"' -- {0}
+        run: |
+          node dist/github-emulator/prepare-workflow.js
+      - name: Run selected workflow against the running mock
+        run: |
+          set -euo pipefail
+          image="github-emulator-test:$COMPOSE_PROJECT_NAME"
+          architecture="$(docker image inspect "$image" --format '{{.Architecture}}')"
+          docker compose -p "$COMPOSE_PROJECT_NAME" -f dist/github-emulator/compose.yaml \
+            exec -T --workdir "$GITHUB_WORKSPACE" \
+            --env GH_TOKEN="$TOKEN" --env GH_ENTERPRISE_TOKEN="$TOKEN" \
+            github-emulator act "$SELECTED_EVENT" \
+            --workflows "$SELECTED_WORKFLOW" --eventpath "$MOCK_EVENT_FILE" \
+            --github-instance github.emulator.test \
+            --replace-ghe-action-with-github-com '*' \
+            --network "${COMPOSE_PROJECT_NAME}_default" \
+            --container-options "--volume ${COMPOSE_PROJECT_NAME}_proxy-data:/emulator-proxy-data:ro" \
+            --env SSL_CERT_FILE=/emulator-proxy-data/caddy/pki/authorities/local/root.crt \
+            --env NODE_EXTRA_CA_CERTS=/emulator-proxy-data/caddy/pki/authorities/local/root.crt \
+            --env GIT_SSL_CAINFO=/emulator-proxy-data/caddy/pki/authorities/local/root.crt \
+            --env GH_HOST=github.emulator.test \
+            --env GH_TOKEN="$TOKEN" --env GH_ENTERPRISE_TOKEN="$TOKEN" \
+            --secret GITHUB_TOKEN="$TOKEN" --secret _NPM_TOKEN= \
+            --secret-file /dev/null --env-file /dev/null --var-file /dev/null \
+            --platform "ubuntu-latest=$image" --container-architecture "linux/$architecture" --pull=false
+      - name: Show emulator logs
+        if: always()
+        run: docker compose -p "$COMPOSE_PROJECT_NAME" -f dist/github-emulator/compose.yaml logs --no-color
+      - name: Save mock test context
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-workflow-context
+          path: ${{ runner.temp }}/mock-event.json
+          if-no-files-found: ignore
+      - name: Remove mock services and private fixtures
+        if: always()
+        run: |
+          docker compose -p "$COMPOSE_PROJECT_NAME" -f dist/github-emulator/compose.yaml down --volumes
+          rm -f "$RUNNER_TEMP/mock-seed.yaml" "$RUNNER_TEMP/mock-source-event.json" "$RUNNER_TEMP/source-pr.json" "$RUNNER_TEMP/mock-snapshot.json"

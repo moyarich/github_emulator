@@ -50,3 +50,13 @@ Thumbs.db
 /dist/*
 !/dist/github-emulator/
 !/dist/github-emulator/**
+
+# Generated emulator credentials
+.emulate-secrets.json
+
+# Act Runner — secrets locais
+.secrets
+.env.local
+.env.production
+.actrc
+!.actrc.example
