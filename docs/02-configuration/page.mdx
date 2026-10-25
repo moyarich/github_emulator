@@ -48,3 +48,16 @@ Caddy generates its local CA automatically and retains it in a Docker volume. Th
 Containers on the Compose network can reach `http://github-emulator:4001`. Other Docker containers on your Mac can use `http://host.docker.internal:4001`.
 
 Clients must explicitly use that API address. A variable such as `API` only changes behavior when the client reads it. Commands requiring unsupported API features, including the GraphQL endpoint used by `gh repo view`, may still fail.
+
+## Reload a running Docker emulator
+
+Compose mounts `.local/config/` from the emulator package at `/config`. Put literal
+`KEY=value` settings in `packages/emulate-github/.local/config/mock.env`, then run
+`npm run docker:reload`. Set `CONFIG_FILE=/config/emulate.config.yaml` to reload an
+editable seed from the same directory. Quote values containing spaces.
+
+The reload validates settings and restarts the emulator process inside the existing
+container. All in-memory mutations reset to the seed. Invalid settings leave the
+active service running. Listener port, host, and Portless mode require container
+recreation. Consumers must use updated API credentials; Docker exec environment
+variables do not change automatically.

@@ -5,34 +5,38 @@ import { join } from "node:path";
 import {
   configuration,
   writeRunnerFile,
-} from "../packages/actions/src/shared.mjs";
-import { cleanup } from "../packages/actions/src/post.mjs";
+} from "../packages/actions/src/shared.ts";
+import { cleanup } from "../packages/actions/src/post.ts";
 
 describe("emulator action", () => {
   it("defaults to a server seeded for the caller repository", () => {
     expect(
       configuration({ GITHUB_REPOSITORY: "moya/workflow-under-test" }),
     ).toMatchObject({
-      mode: "server",
       repository: "moya/workflow-under-test",
       token: "local-test-token",
       exportEnv: true,
     });
   });
   it("rejects invalid configuration before building containers", () => {
-    expect(() => configuration({ INPUT_MODE: "invalid" })).toThrow("mode");
     expect(() => configuration({ INPUT_REPOSITORY: "invalid" })).toThrow(
       "owner/name",
     );
     expect(() => configuration({ "INPUT_EXPORT-ENV": "yes" })).toThrow(
       "export-env",
     );
-    expect(() =>
-      configuration({
-        INPUT_MODE: "smoke-test",
-        "INPUT_SEED-FILE": "seed.yml",
-      }),
-    ).toThrow("server mode");
+  });
+  it("has no release-scenario configuration", () => {
+    const config = configuration({ "INPUT_SEED-FILE": "fixtures/github.yaml" });
+    expect(config.seedFile).toBe("fixtures/github.yaml");
+    for (const key of [
+      "mode",
+      "manifestPath",
+      "oldVersion",
+      "newVersion",
+      "updateBody",
+    ])
+      expect(config).not.toHaveProperty(key);
   });
   it("writes multiline runner values without allowing value lines to become keys", () => {
     const directory = mkdtempSync(join(tmpdir(), "emulator-action-test-"));

@@ -1,0 +1,17 @@
+{
+	auto_https disable_redirects
+}
+
+https://github.emulator.test {
+	tls internal
+
+	# gh treats custom hosts as GitHub Enterprise Server.
+	@graphql path /api/graphql
+	rewrite @graphql /graphql
+	handle_path /api/v3/* {
+		reverse_proxy {$GITHUB_UPSTREAM:github-emulator:4001}
+	}
+	handle {
+		reverse_proxy {$GITHUB_UPSTREAM:github-emulator:4001}
+	}
+}

@@ -1,0 +1,39 @@
+# Use with: docker compose -f compose.yaml -f compose.dispatcher.yaml up --build -d --wait
+services:
+  github-emulator:
+    image: github-emulator:dispatcher
+  github-dispatcher:
+    image: github-emulator:dispatcher
+    init: true
+    command: [node, /app/dispatcher/index.ts]
+    working_dir: /workspace
+    environment:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /workspace
+      REPO: ${REPO:-moyarich/release-smoke-test}
+      TOKEN: ${TOKEN:-local-test-token}
+      DISPATCH_ENABLED: "1"
+      DISPATCH_UPSTREAM: http://github-emulator:4001
+      DISPATCH_WORKSPACE: /workspace
+      DISPATCH_WORKFLOWS: ${DISPATCH_WORKFLOWS:-.github/workflows}
+      DISPATCH_NETWORK: ${COMPOSE_PROJECT_NAME:-github_emulator}_default
+      DISPATCH_CA_VOLUME: ${COMPOSE_PROJECT_NAME:-github_emulator}_proxy-data
+      DISPATCH_IMAGE: github-emulator:dispatcher
+    volumes:
+      - ${DISPATCH_WORKSPACE:?Set DISPATCH_WORKSPACE to the absolute workflow repository path}:/workspace:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      github-emulator:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost:4002/_dispatcher/health]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  github-proxy:
+    environment:
+      GITHUB_UPSTREAM: github-dispatcher:4002
+    depends_on:
+      github-dispatcher:
+        condition: service_healthy

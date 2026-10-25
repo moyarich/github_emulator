@@ -1,0 +1,71 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# nektos/act example configuration
+#
+# Copy this file to `.actrc` in your projects workspace root:
+#
+#   cp .actrc.example .actrc
+#
+# Run `act` from the directory that contains your local repositories:
+#
+#   cd ~/my-project
+#
+# Example repository layout:
+#
+#   my-project/
+#   ├── .actrc
+#   └── my-repository/
+#       ├── .github/
+#       │   └── workflows/
+#       │       └── pipeline-local.yaml
+#       └── .secrets
+#
+# Example:
+#
+#   act push \
+#     -W my-repository/.github/workflows/pipeline-local.yaml \
+#     --secret-file my-repository/.secrets
+#
+# IMPORTANT:
+# `act` parses this file by splitting values on whitespace.
+# Shell-style quoting is not supported.
+#
+# Prefer:
+#   --flag=value
+#
+# Avoid:
+#   --flag="value with spaces"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Do not pull the runner image before every execution.
+--pull=false
+
+# Map GitHub's `ubuntu-latest` runner to a full-featured local runner image.
+# Adjust this image if your environment requires a different runner.
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+
+# Attach workflow containers to an existing Docker network.
+# Change `platform_net` to match your local Docker Compose network.
+#
+# Containers on this network should access other services by Docker service name,
+# for example: sonarqube:9000 or portainer:9443.
+--network platform_net
+
+# Reuse workflow containers between runs.
+#
+# Disabled by default because reused containers can fail if they were removed
+# or cleaned up outside of `act`.
+#
+# --reuse
+
+# Clean up stale `act` containers when needed:
+#   docker rm -f $(docker ps -aq --filter "name=act-")
+
+# Force the container architecture used by local workflow jobs.
+# Useful on Apple Silicon or other ARM hosts when workflows expect amd64.
+--container-architecture linux/amd64
+
+# Maximum number of workflow jobs that may run concurrently.
+--concurrent-jobs 4
+
+# Directory used by `act`'s local artifact server.
+--artifact-server-path /tmp/artifacts

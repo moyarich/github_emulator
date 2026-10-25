@@ -11,22 +11,21 @@
 # Overridable via environment variables, e.g.:
 #   NEW_VERSION=2.0.0 RUN_ACT=1 ./scripts/github_emulator.sh
 
-release_smoke_cli() (
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cli-common.sh"
-local CLI_KIND CLI_NAME CLI_DIR CLI_ACTION CLI_VERBOSE=0
-cli_prepare smoke-test "$(basename "${BASH_SOURCE[0]}")" "$@" || return $?
-[[ "$CLI_ACTION" == run ]] || return 0
-if [[ "$CLI_VERBOSE" == 1 ]]; then cli_config; fi
+
+# Resolve the directory containing this script.
+current_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source the emulator script.
+source "$current_dir/start-emulator.sh"
 
 # ----------------------------------------------------------------------------
 # Configuration
 # ----------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-EMU_PORT="${EMU_PORT:-4001}"
-export API="${API:-http://localhost:$EMU_PORT}"
+ROOT_DIR="/app"
+EMULATE_PORT="${EMULATE_PORT:-4001}"
+export API="${API:-http://localhost:$EMULATE_PORT}"
 export REPO="${REPO:-moyarich/release-smoke-test}"   # seeded in the emulator
 export TOKEN="${TOKEN:-local-test-token}"
 
@@ -98,13 +97,9 @@ b64_encode() { base64 | tr -d '\n'; }
 b64_decode() { tr -d '\n' | base64 --decode; }
 
 cleanup() {
-  if [[ -n "$EMU_PID" && "$KEEP_EMULATOR" != "1" ]]; then
-    printf '\n%s  ➜ Stopping emulator (pid %s)%s\n' "$GRAY" "$EMU_PID" "$RESET"
-    kill "$EMU_PID" 2>/dev/null || true
-    wait "$EMU_PID" 2>/dev/null || true
-  fi
-  rm -rf "$RUN_DIR"
+  emulator_cleanup "$EMU_PID" "$RUN_DIR"
 }
+
 trap cleanup EXIT
 
 # ----------------------------------------------------------------------------
@@ -113,35 +108,20 @@ trap cleanup EXIT
 emulator_is_up() { curl -fsS -o /dev/null --max-time 2 "$API/repos/$REPO" -H "Authorization: Bearer $TOKEN" 2>/dev/null; }
 
 start_emulator() {
-  step "$BLUE" 1 "Start the GitHub emulator"
-
   if emulator_is_up; then
     warn "Emulator already responding at $API; reusing it"
     return
   fi
-
-  local EMULATE_BIN
-  EMULATE_BIN="$(cli_emulate_bin "$PACKAGE_DIR")" || return $?
-  [[ "$API" == "http://localhost:$EMU_PORT" || "$API" == "http://127.0.0.1:$EMU_PORT" ]] || fail "No repository found at external API $API; start and seed that emulator first"
-  jq -n --arg owner "${REPO%%/*}" --arg name "${REPO#*/}" --arg token "$TOKEN" --arg branch "$BASE_BRANCH" \
-    '{tokens:{($token):{login:$owner,scopes:["repo","user"]}},github:{users:[{login:$owner}],repos:[{owner:$owner,name:$name,auto_init:true,default_branch:$branch}]}}' > "$RUN_DIR/seed.json"
-  info "Starting local GitHub emulator (log: $EMU_LOG)"
-  "$EMULATE_BIN" start --service github --port "$EMU_PORT" --host "${EMU_HOST:-127.0.0.1}" --seed "$RUN_DIR/seed.json" >"$EMU_LOG" 2>&1 &
+  local run_dir="$RUN_DIR"
+  local SEED_SOURCE="${CONFIG_FILE:-${SEED_FILE:-}}"
+  local seed_path="$run_dir/emulate.config.yaml"
+  local USE_PORTLESS="${USE_PORTLESS:-0}" EMU_HOST="${EMU_HOST:-127.0.0.1}"
+  [[ "$API" == "http://localhost:$EMULATE_PORT" || "$API" == "http://127.0.0.1:$EMULATE_PORT" ]] || fail "External API unavailable: $API"
+  emulator_prepare_seed "$seed_path" "$PWD/emulate.config.yaml"
+  emulator_start_emulator "$seed_path" "$(emulator_resolve_secrets_path "$run_dir")" >"$EMU_LOG" 2>&1 &
   EMU_PID=$!
-
-  info "Waiting for $API ..."
-  local i
-  for i in $(seq 1 60); do
-    if emulator_is_up; then
-      ok "Emulator is up"
-      api_json PUT "/repos/$REPO/contents/$MANIFEST_PATH" "$(jq -n --arg branch "$BASE_BRANCH" --arg content "$(jq -n --arg v "$OLD_VERSION" '{name:"@example/core",version:$v}' | b64_encode)" '{message:"Seed test package",branch:$branch,content:$content}')" >/dev/null
-      return
-    fi
-    kill -0 "$EMU_PID" 2>/dev/null || { tail -n 20 "$EMU_LOG" >&2; fail "Emulator exited early"; }
-    sleep 1
-  done
-  tail -n 20 "$EMU_LOG" >&2
-  fail "Emulator did not become ready within 60s"
+  emulator_wait_for_emulator "$EMU_PID"
+  emulator_bootstrap_repository
 }
 
 verify_seeded_repo() {
@@ -331,8 +311,3 @@ main() {
 }
 
 main "$@"
-)
-
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-  release_smoke_cli "$@"
-fi

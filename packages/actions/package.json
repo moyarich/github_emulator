@@ -3,9 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Canonical action metadata, runtime, and Marketplace distribution generator",
+  "description": "GitHub emulator action and Vite build plugin",
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "check:dist": "node scripts/build.mjs --check"
+    "build": "vite build",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7"
   }
 }

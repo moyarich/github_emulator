@@ -6,7 +6,7 @@ description: Run workflow clients against a local GitHub API, with automatic cle
 
 # Emulate GitHub in a workflow.
 
-Use this action before steps that need a GitHub API fixture. It creates a local seeded repository, waits for readiness, and removes its container in a post-job step. The default mode is `server`.
+Use this action before steps that need a GitHub API fixture. It creates a local seeded repository, waits for readiness, and removes its container in a post-job step. It only provides the mock service; the calling workflow owns its steps and fixtures.
 
 ## Point workflow clients at the emulator
 
@@ -42,6 +42,53 @@ The action exports `GH_EMULATOR_API_URL` and `GH_EMULATOR_TOKEN` for later steps
 
 A hardcoded github.com endpoint or the `github.api_url` context still points to real GitHub. The action cannot override those contexts, and it does not supply a live GitHub token. Unsupported emulator endpoints remain unsupported. Standard `gh` subcommands may also need HTTPS/host configuration; the action's endpoint is plain HTTP on the runner.
 
+## Run an existing workflow unchanged
+
+Dispatch **Test a workflow against mock GitHub** from
+`.github/workflows/test-github-workflow.yml`. Select the existing workflow path
+(default `.github/workflows/release-approved-pr.yml`), event type, event JSON file,
+and optional seed YAML/JSON file. The selected file is passed to `act` unchanged.
+
+The harness starts the mock and HTTPS proxy outside the nested workflow, so its
+jobs share the service. `act --github-instance github.emulator.test` sets GitHub's
+API/server contexts to the mock. The runner trusts the proxy CA and receives only
+test credentials. Public action and reusable-workflow source downloads still come
+from GitHub; those are dependencies, not the API service under test.
+
+The event and seed files must describe the scenario being tested, including the
+PR, commits, files, and checks that the workflow expects. A missing fixture or an
+unsupported emulator endpoint fails the test; selecting a file is not proof that
+its release logic passed. Hardcoded real GitHub URLs and package registries are
+not redirected. Production secrets are not passed into the nested workflow.
+
+`release-approved-pr.yml` remains unchanged. Its existing `dry-run: true` setting
+also remains in effect when selected.
+
+## Docker harness v2
+
+**Mock GitHub - via Docker** (`test-github-workflow-v2.yml`) completes setup from
+the GitHub context and checkout. Choose any existing workflow file; v2 reads the event, activity type, and literal branch filter from its `on:` declaration. PR tests create a synthetic mock PR by default. Literal head-branch prefixes and
+merged-state conditions in job guards guide that fixture. A PR number optionally
+uses real PR metadata instead; `github.token` is used only for that read. An
+event-file can supply a more specific scenario. Push and
+workflow-dispatch tests use the invoking context, with the declared trigger and branch.
+
+The harness imports tracked Git objects from `github.sha`, preserving binary files,
+executable bits, and symlinks. Untracked files are excluded. It creates a snapshot,
+not a replica of the original Git history: mock commits and PR numbers have new
+identities. The replayed event uses those identities and retains source SHA/ref
+provenance under `_emulate`. A merged PR event has corresponding merged mock PR
+state. Service startup, repository import, replay-event creation, and
+workflow execution are separate steps. They use the same running container until
+the final cleanup step. Checks, artifacts, prior workflow runs, and other scenario-specific state
+still need appropriate fixtures; the harness does not manufacture passing gates.
+
+The fixed local token `mock-token` is registered in the mock and passed to nested jobs. The real checkout/API
+token is not passed to Docker's `act` or nested jobs. Optional seed files are copied
+and augmented with the local token. The selected workflow and its dry-run setting
+are unchanged. The action itself remains a generic service setup action; the
+separate harness owns snapshot import, event preparation, and `act` execution.
+
 ## Custom fixtures
 
 ```yaml
@@ -54,24 +101,19 @@ A hardcoded github.com endpoint or the `github.api_url` context still points to 
     seed-file: tests/fixtures/github.json
 ```
 
-The fixture file is caller-owned YAML or JSON in the upstream emulator's seed format. It must seed the selected repository and token. The file is mounted read-only. When provided, the action does not add the default package manifest; create files or other scenario data through the local API as needed.
+The fixture file is caller-owned YAML or JSON in the upstream emulator's seed format. It must seed the selected repository and token. The file is mounted read-only. The action never creates a package manifest or performs release operations. Create scenario data through this file or the local API.
 
 ## Inputs and outputs
 
-| Input            | Default                      | Purpose                                            |
-| ---------------- | ---------------------------- | -------------------------------------------------- |
-| `mode`           | `server`                     | Keep a server for later steps, or run `smoke-test` |
-| `repository`     | Caller repository            | Name to seed inside the emulator                   |
-| `token`          | `local-test-token`           | Local authentication, not a live GitHub token      |
-| `seed-file`      | Empty                        | Optional caller seed YAML/JSON (server mode)       |
-| `base-branch`    | `main`                       | Default seed's branch                              |
-| `manifest-path`  | `packages/core/package.json` | Default seed's manifest                            |
-| `old-version`    | `1.0.0`                      | Initial version                                    |
-| `new-version`    | `1.1.0`                      | Smoke-test target                                  |
-| `update-pr-body` | `'1'`                        | Add a version note in the smoke test               |
-| `export-env`     | `'true'`                     | Export emulator convenience variables              |
+| Input         | Default            | Purpose                               |
+| ------------- | ------------------ | ------------------------------------- |
+| `repository`  | Caller repository  | Name to seed inside the emulator      |
+| `token`       | `local-test-token` | Local test authentication             |
+| `seed-file`   | Empty              | Caller-owned YAML/JSON fixture        |
+| `base-branch` | `main`             | Default seed's branch                 |
+| `export-env`  | `'true'`           | Export emulator convenience variables |
 
-Server outputs are `api-url`, `token`, `repository`, and `container-id`. The URL is bound to runner-host loopback on a random port. It is for later host steps in the same job; container jobs and separate jobs require their own networking setup. Cleanup is automatic even if subsequent steps fail. An explicit `docker rm --force` is optional.
+Server outputs are `api-url`, `token`, `repository`, and `container-id`. The URL uses runner-host loopback on a random port. Under `act`, the action also tries `host.docker.internal` for Docker Desktop and returns the reachable address. It is for later host steps in the same job; container jobs and separate jobs require their own networking setup. Cleanup is automatic even if subsequent steps fail. An explicit `docker rm --force` is optional.
 
 ## Marketplace packaging and release
 
@@ -79,9 +121,8 @@ Canonical action metadata and runtime live in `packages/actions`. Building gener
 
 ```sh
 npm run build:actions
-npm run check:actions
 ```
 
-Commit and push source and generated files together. Then run **Prepare Marketplace action release** with a version such as `v1.0.0`. It validates the generated distribution, runs the Docker smoke test, and creates a draft release. On GitHub, review the draft and select **Publish this Action to GitHub Marketplace** when publishing. The repository is public; GitHub validates the Marketplace name and requires its terms to be accepted. Preparing metadata or a draft does not publish a Marketplace listing.
+Commit and push source and generated files together. Then run **Prepare Marketplace action release** with a version such as `v1.0.0`. It builds the distribution, verifies service setup, and creates a draft release. On GitHub, review the draft and select **Publish this Action to GitHub Marketplace** when publishing. The repository is public; GitHub validates the Marketplace name and requires its terms to be accepted. Preparing metadata or a draft does not publish a Marketplace listing.
 
 See [GitHub's publishing instructions](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace) for the current requirements.

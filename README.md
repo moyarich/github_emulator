@@ -10,7 +10,7 @@ From the project root:
 npm run docker:up
 ```
 
-The API stays available at **http://localhost:4001** until you stop it. The container uses `catthehacker/ubuntu:act-latest`, checks Node.js 24+ and npm, and installs the tools and locked dependencies it needs.
+The API stays available at **http://localhost:4001** until you stop it. The container uses `catthehacker/ubuntu:act-latest`, installs the tools and pinned runtime packages it needs.
 
 Default seed:
 
@@ -121,6 +121,23 @@ gh api http://localhost:4001/repos/moyarich/release-smoke-test/pulls
 
 Replace the port, repository, and token if you changed them in Compose. Full HTTP URLs continue to work. Through the HTTPS proxy, relative `gh api` paths and `gh search repos` also work in the interactive shell. `gh repo view` still fails because the GitHub emulator does not expose its required GraphQL endpoint. See the [GitHub CLI API reference](https://cli.github.com/manual/gh_api).
 
+### GitHub CLI smoke test
+
+The image includes `smoke-test-github-cli.sh`, sourced from
+`packages/emulate-github/scripts/smoke-test-github-cli.sh`. Run it against the
+Compose emulator after rebuilding:
+
+```sh
+npm run docker:up
+docker compose -f packages/emulate-github/compose.yaml exec github-emulator smoke-test-github-cli.sh
+```
+
+It uses `gh api` to create a release branch, update the package, create and merge
+a pull request, and verify the result. It changes emulator state. Set `OLD_VERSION`
+and `NEW_VERSION` when repeating the test against an existing emulator. CLI
+preferences and credentials are scoped to the test's temporary configuration.
+See [gh config](https://cli.github.com/manual/gh_config).
+
 ### Reproduce the shell script with `gh api`
 
 Start the persistent server with `npm run docker:up`, then run the following in Bash with `gh`, `jq`, and `base64` installed. It performs the same API activities as `scripts/github_emulator.sh`, including the optional description update and event-file creation. It creates a branch and PR and changes the package version in the running emulator. Adjust the configuration at the top to match Compose; the release metadata below assumes the default `@example/core` package.
@@ -228,7 +245,7 @@ npm start  # Persistent API server
 npm run test:emulator   # Smoke test (uses an existing local server if available)
 ```
 
-The smoke-test script supports `API`, `REPO`, `TOKEN`, `BASE_BRANCH`, `RELEASE_BRANCH`, `MANIFEST_PATH`, `OLD_VERSION`, `NEW_VERSION`, `UPDATE_PR_BODY`, and `EMU_PORT`. An existing server must contain the requested repository and manifest.
+The smoke-test script supports `API`, `REPO`, `TOKEN`, `BASE_BRANCH`, `RELEASE_BRANCH`, `MANIFEST_PATH`, `OLD_VERSION`, `NEW_VERSION`, `UPDATE_PR_BODY`, and `EMULATE_PORT`. An existing server must contain the requested repository and manifest.
 
 Its optional `RUN_ACT=1` step requires act installed on the host and `WORKFLOW_FILE` pointing at a workflow, with the target checkout as the working directory. The Docker image does not install act.
 
@@ -253,10 +270,10 @@ packages/emulate-github/
   compose.yaml
   docker/                       # Self-contained image dependencies and runtimes
     Dockerfile
-    package.json
-    package-lock.json
+    start.sh
+    smoke-test.sh
     proxy/
-  scripts/                      # Local CLI implementation; excluded from Docker
+  scripts/                      # Server and smoke-test scripts
   docs/cli.md
 ```
 
@@ -281,16 +298,16 @@ For a specific package, use `npm run test --workspace=@moya/emulate-github`. Add
 
 Root `npm run docker:*` commands delegate to the package. From `packages/emulate-github`, the same commands work directly. Without host Node/npm, use `docker compose -f packages/emulate-github/compose.yaml up --build -d --wait` from the monorepo root, or run `docker compose up --build -d --wait` inside the package.
 
-`packages/emulate-github/docker/Dockerfile` separates shared tools (`tools`), locked Docker dependencies (`dependencies`), disposable tests (`smoke-test`), and the persistent API (`server`). Compose selects the server target by default; `npm run docker:test` selects the separate test service.
+`packages/emulate-github/docker/Dockerfile` separates shared tools (`tools`), Docker runtime dependencies (`dependencies`), disposable tests (`smoke-test`), and the persistent API (`server`). Compose selects the server target by default; `npm run docker:test` selects the separate test service.
 
-The server's startup, seed creation, readiness checks, logs, and shutdown handling are defined in the Dockerfile and generated into `/usr/local/bin/start-github-emulator` at build time. The server image does not copy or invoke the local `.sh` files. Those remain in `scripts/` for `npm start` / `npm run test:emulator` on the host, and are excluded from the Docker build context. The smoke-test target also defines its own implementation in the Dockerfile. Keep the local and Docker startup behavior aligned when changing seed or logging behavior.
+Startup and smoke-test scripts live in `packages/emulate-github/scripts/` and are copied into the image. The Dockerfile installs pinned runtime packages; startup generates and edits the config using runtime environment values.
 
-Docker builds are self-contained in `packages/emulate-github/docker/`: `package.json` pins `emulate`, `package-lock.json` pins its dependency tree, and the image installs them with `npm ci --omit=dev`. Compose and the GitHub Action both use `packages/emulate-github/docker/` as the build context. No root manifest, workspace files, or local scripts are copied into the image.
+Docker builds install `emulate@0.12.3` and `portless@0.15.11` directly with npm. Compose builds from `packages/emulate-github/` with an allowlisted context. The GitHub Action uses its generated Docker context, including the same scripts. No dependency manifests or workspace dependencies are copied into the image.
 
 Build either target directly:
 
 ```sh
-docker build --target server -t github-emulator ./packages/emulate-github/docker
+docker build -f packages/emulate-github/docker/Dockerfile --target mock-github -t github-emulator ./packages/emulate-github
 docker build --target smoke-test -t github-emulator-test ./packages/emulate-github/docker
 ```
 
@@ -329,7 +346,21 @@ jobs:
 
 Pin a released version or commit SHA when consuming the action. The default `repository` input seeds a fixture using the caller repository's name; it does not clone or modify real repository state. `seed-file` can supply a caller-owned YAML/JSON fixture. Server outputs are `api-url`, `token`, `repository`, and `container-id`. Optional exported variables are `GH_EMULATOR_API_URL` and `GH_EMULATOR_TOKEN`; they are not automatic redirects. `github.api_url` and hardcoded github.com requests remain unchanged, so client API configuration is required. The endpoint is for runner-host steps in the same Linux job with Docker.
 
-For the built-in disposable release scenario, set `mode: smoke-test`. For local action testing after checkout, use `uses: ./`. Read [the GitHub Action guide](docs/04-github-action/page.mdx) for inputs, custom seeds, networking, and cleanup.
+The action only starts the GitHub service; it does not run a release scenario or workflow. Standalone smoke tests remain available through `npm run docker:test`. For local action testing after checkout, use `uses: ./`. Read [the GitHub Action guide](docs/04-github-action/page.mdx) for inputs, custom seeds, networking, and cleanup.
+
+### Select an existing workflow to test
+
+Run **Test a workflow against mock GitHub** manually. Choose a workflow path,
+including `.github/workflows/release-approved-pr.yml`, and provide its event JSON
+and optional seed fixture paths. The harness runs the selected file unchanged
+through `act`, with GitHub contexts and `gh` pointed at the mock HTTPS service.
+The original workflow's conditions and dry-run settings still apply. See the
+[GitHub Action guide](docs/04-github-action/page.mdx) for fixture and routing details.
+
+The **Mock GitHub - via Docker** v2 workflow also imports the checked-out commit
+and prepares a replay event using the fixed local token `mock-token`. PR events use a synthetic mock PR by default. A PR number or event-file can override it. Only explicit PR-number overrides read real PR metadata;
+nested workflows receive the mock token. Imported snapshots use mock commit IDs
+and preserve the original SHA/ref as event provenance.
 
 ### Package sources and Marketplace distribution
 
@@ -337,10 +368,21 @@ Following `moyarich/reusable-workflows`, canonical metadata and runtime live und
 
 ```sh
 npm run build:actions
-npm run check:actions
 ```
 
-Commit generated files with their source changes. The **Prepare Marketplace action release** workflow checks the distribution, runs the smoke test, and prepares a versioned draft release. Review and publish the draft with GitHub's **Publish this Action to GitHub Marketplace** option. GitHub validates the name and requires acceptance of its terms. Metadata and a draft release alone do not create a Marketplace listing. See [GitHub's Marketplace publishing instructions](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace).
+Commit generated files with their source changes. The **Prepare Marketplace action release** workflow builds the distribution, verifies service setup, and prepares a versioned draft release. Review and publish the draft with GitHub's **Publish this Action to GitHub Marketplace** option. GitHub validates the name and requires acceptance of its terms. Metadata and a draft release alone do not create a Marketplace listing. See [GitHub's Marketplace publishing instructions](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/publish-in-github-marketplace).
+
+### Test the action with act
+
+```sh
+act workflow_dispatch -W .github/workflows/emulator.yml \
+  -P ubuntu-latest=catthehacker/ubuntu:act-latest \
+  --container-architecture linux/arm64 --pull=false
+```
+
+Use `linux/amd64` on an Intel host. The action tries `host.docker.internal` under
+`act` when runner loopback cannot reach Docker Desktop's published emulator port.
+Use the returned `api-url` output for subsequent steps.
 
 ## Native Portless HTTPS
 
@@ -352,6 +394,84 @@ npm run start:portless --workspace=@moya/emulate-github
 ```
 
 Portless handles the local proxy and certificates and registers `https://github.emulate.localhost`. First-time trust and port setup can require an interactive sudo prompt. The local package supplies a pinned Portless dependency, so no global npm installation is needed. Native `start --portless` also works when Portless is on PATH. This option is separate from Docker's configured Caddy route and does not change the action's runner-local HTTP endpoint. See [emulate's integration](https://github.com/vercel-labs/emulate#https-with-portless).
+
+### Reload configuration from a shared file
+
+Compose mounts `packages/emulate-github/.local/config/` at `/config` read-only.
+The directory mount also supports replacing files atomically on the host.
+Start the rebuilt image, edit `mock.env`, then reload:
+
+```sh
+mkdir -p packages/emulate-github/.local/config
+npm run docker:up
+cat > packages/emulate-github/.local/config/mock.env <<'ENV'
+REPO=fixture/workflow-tests
+TOKEN=another-local-token
+BASE_BRANCH=develop
+OLD_VERSION=2.0.0
+ENV
+npm run docker:reload
+```
+
+The supervisor rereads the file, validates a new seed, and restarts only the
+emulator process. The container ID stays the same. **In-memory repositories,
+issues, PRs, imported snapshots, and other mutations reset to the seed.** Invalid
+settings are rejected before stopping the active emulator. Removed settings return
+to the original container environment.
+
+The file accepts literal `KEY=value` lines, optional `export`, comments, and quoted
+values. Shell commands and variable expansion are not evaluated. Supported keys:
+`REPO`, `TOKEN`, `BASE_BRANCH`, `CONFIG_FILE`, `SEED_FILE`, `MANIFEST_PATH`,
+`OLD_VERSION`, `EMULATE_BASE_URL`, `PUBLIC_API`, `BOOTSTRAP_REPOSITORY`,
+`EMULATE_PORT`, `EMU_HOST`, `USE_PORTLESS`, and `GENERATED_SECRETS_FILE`.
+Changing the listener port, host, or Portless mode requires recreating the container.
+An explicitly configured secrets destination must be a new path on every restart.
+
+For a shared YAML seed, put it in the same directory and set
+`CONFIG_FILE=/config/emulate.config.yaml` in `mock.env`. Edit either file and run
+`npm run docker:reload`. Clients must use the updated token/repository; `docker exec`
+still inherits the original Docker environment. The Compose health check uses the
+supervisor's active settings.
+
+Native startup supports `EMULATOR_ENV_FILE=/absolute/path/mock.env`. From another
+terminal, use `bash packages/emulate-github/scripts/start-emulator.sh reload` with
+the same `EMULATE_PORT` (default 4001). Docker's equivalent is:
+
+```sh
+docker compose -f packages/emulate-github/compose.yaml exec -T github-emulator start-emulator.sh reload
+```
+
+### Docker configuration and Portless
+
+Startup generates `emulate.config.yaml` with `emulate init --service github` and applies runtime `REPO`, `TOKEN`, and `BASE_BRANCH` values before emulate reads it.
+To edit a copy on your host:
+
+```sh
+docker compose -f packages/emulate-github/compose.yaml run --rm --no-deps github-emulator bash -c 'emulate init --service github >&2; cat emulate.config.yaml' > emulate.config.yaml
+```
+
+Mount that file and select it with `CONFIG_FILE`. The server writes private generated
+secrets to a fresh temporary `.emulate-secrets.json`; set `GENERATED_SECRETS_FILE`
+to a new path on a private writable mount if you need to retain it.
+
+```sh
+docker compose -f packages/emulate-github/compose.yaml run --rm --no-deps \
+  -p 4001:4001 -p 443:443 \
+  -v "$PWD/emulate.config.yaml:/config/emulate.config.yaml:ro" \
+  -e CONFIG_FILE=/config/emulate.config.yaml -e USE_PORTLESS=1 \
+  github-emulator
+```
+
+Use a repository and token from your config via `REPO` and `TOKEN` for readiness.
+Portless registers `https://github.emulate.localhost` inside the container. Publishing
+port 443 exposes that proxy on the host; its generated CA must also be trusted by
+host clients. Container trust does not install trust on your host. Do not run the
+existing Caddy proxy on the same host port. The regular Compose startup keeps Caddy
+and the existing HTTP endpoint unless `USE_PORTLESS=1` is selected.
+
+`EMULATE_PORT` controls the listener; `EMULATE_BASE_URL` overrides advertised API URLs.
+`PORTLESS_URL` is supplied when Portless launches a command; with `emulate --portless`,
+emulate registers its own named alias. These settings do not redirect requests to real GitHub.
 
 ## Template integration
 
@@ -369,6 +489,69 @@ npm run build:playground
 ```
 
 The guides cover running and configuring the emulator. Examples cover gh commands and release pull-request testing. MoyaForge supplies the underlying MDX tooling and copied UI components; the site does not publish component documentation. See [the documentation app guide](apps/playground/README.md) for content authoring and contributor tooling. The emulator Docker image remains independent of this UI.
+
+## Dispatch mock API activity to workflows
+
+The optional dispatcher forwards API requests to the emulator and queues matching
+workflows through `act`. Start it with an absolute path to a local Git repository:
+
+```sh
+export DISPATCH_WORKSPACE="$PWD"
+docker compose -f packages/emulate-github/compose.yaml \
+  -f packages/emulate-github/compose.dispatcher.yaml up --build -d --wait
+```
+
+Send requests through the HTTPS proxy at `github.emulator.test` (port 8443 on the
+host). Direct requests to port 4001 bypass dispatching, which is useful for seeding
+repositories and branches before a test. Keep using the configured local `TOKEN`.
+The proxy certificate setup described above applies here too.
+
+Supported activities are PR creation, editing, closing, reopening and merging;
+issue creation; published release creation; and `POST /repos/{owner}/{repo}/dispatches`
+with `event_type` and optional `client_payload`. Failed API requests and reads do
+not trigger workflows. This is a supported subset of GitHub events, not a full
+GitHub event implementation; pushes and other mutations do not yet emit events.
+
+The dispatcher reads `on:` and matches event names, activity types, and PR base
+branch patterns before invoking `act`. PR path filters are rejected because these
+API mutations do not supply a changed-file comparison. Set `DISPATCH_WORKFLOWS` to a
+specific workflow path to restrict execution without editing that workflow.
+Only the configured repository and token can enqueue jobs. Jobs run serially;
+failures appear in `docker compose ... logs github-dispatcher`. The queue is
+in memory, and each dispatcher process accepts at most 50 events to bound
+workflow-triggered loops. Restarting the service clears the queue and limit.
+The Docker socket allows these local workflows to run containers on your machine.
+
+V2 still uses explicit event replay. The manual workflow
+`.github/workflows/test-github-workflow-v3.yml` uses the dispatcher: select a
+workflow, and V3 imports the checkout, performs a matching mock API activity,
+and waits for the dispatched workflows to finish. A failed workflow or an
+activity that matches no workflow fails the V3 job. V3 supports the activities
+listed above and leaves the selected workflow unchanged. Stop the dispatcher with the same two
+Compose files and `down --volumes`.
+
+## V4: run release.yml and dispatch downstream events
+
+Run `.github/workflows/test-github-workflow-v4.yml` manually. It starts the mock
+services, imports the checkout, then invokes the existing `release.yml` with
+`act workflow_dispatch`. The release workflow file is never rewritten.
+`release-inputs` is a JSON object overlaid on that workflow's declared defaults;
+the V4 default disables dry-run and draft mode so the mock release can emit a
+published event. Only the local mock token is supplied to workflow runners.
+
+The dispatcher scans all `.github/workflows` files, starts each matching
+workflow, and continues processing activity from those workflows. V4 waits for
+the queue to drain and reports downstream failures. It fails if the release
+workflow emits no supported API events. Events with no matching workflows are
+reported without inventing a downstream run. The repository currently has no
+`on: release` subscriber, so add one to exercise a release-published chain.
+
+Public reusable workflow source is fetched from GitHub and mapped into `act`
+with `--local-repository`; its API operations still target the mock. The current
+upstream `reusable_workspace-package-release.yml` contains unresolved `$/...`
+workflow references, which `act` rejects. V4 exposes that upstream failure;
+it does not rewrite the release workflow or its dependencies to hide it.
+The dispatcher chain has been verified with release and downstream fixtures.
 
 ## Tools used
 

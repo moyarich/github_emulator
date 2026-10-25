@@ -1,0 +1,231 @@
+name: Mock GitHub - API dispatcher V3
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow:
+        description: Existing workflow to trigger through mock API activity
+        type: string
+        default: .github/workflows/release-approved-pr.yml
+        required: true
+      repository:
+        description: Mock owner/repository; empty uses github.repository
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: mock-dispatch-${{ github.run_id }}-${{ github.run_attempt }}
+      EMULATOR_PORT: "0"
+      HTTPS_PORT: "0"
+      TOKEN: mock-token
+      REPO: ${{ inputs.repository || github.repository }}
+      BASE_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+      SOURCE_SHA: ${{ github.sha }}
+      SOURCE_REF: ${{ github.ref }}
+      SOURCE_EVENT_NAME: ${{ github.event_name }}
+      SELECTED_WORKFLOW: ${{ inputs.workflow }}
+      DISPATCH_WORKSPACE: ${{ github.workspace }}
+      DISPATCH_WORKFLOWS: ${{ inputs.workflow }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build runtime
+        run: |
+          set -euo pipefail
+          image="github-emulator-test:$COMPOSE_PROJECT_NAME"
+          docker build --file dist/github-emulator/docker/Dockerfile --target mock-github --tag "$image" dist/github-emulator
+          docker compose -f dist/github-emulator/compose.yaml build github-proxy
+      - name: Detect workflow trigger
+        run: |
+          set -euo pipefail
+          [[ -f "$SELECTED_WORKFLOW" ]]
+          image="github-emulator-test:$COMPOSE_PROJECT_NAME"
+          docker run --rm -i --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE:ro" \
+            --workdir "$GITHUB_WORKSPACE" --env SELECTED_WORKFLOW --env SOURCE_EVENT_NAME \
+            --entrypoint python3 "$image" - <<'PYTHON' >> "$GITHUB_ENV"
+          import os
+          import re
+          from ruamel.yaml import YAML
+
+          with open(os.environ["SELECTED_WORKFLOW"], encoding="utf-8") as stream:
+              workflow = YAML(typ="safe").load(stream)
+          triggers = workflow.get("on")
+          if isinstance(triggers, str):
+              triggers = {triggers: {}}
+          elif isinstance(triggers, list):
+              triggers = {name: {} for name in triggers}
+          if not isinstance(triggers, dict) or not triggers:
+              raise SystemExit("The selected workflow must declare an on trigger")
+          candidates = [name for name in triggers if name != "workflow_call"]
+          if not candidates:
+              raise SystemExit("Select a workflow with a replayable event; workflow_call requires a caller")
+          source = os.environ["SOURCE_EVENT_NAME"]
+          event = source if source in candidates else candidates[0]
+          settings = triggers[event] or {}
+          types = settings.get("types", []) if isinstance(settings, dict) else []
+          print(f"SELECTED_EVENT={event}")
+          if types:
+              print(f"SELECTED_ACTIVITY={types[0]}")
+          if event == "pull_request":
+              conditions = " ".join(str(job.get("if", "")) for job in workflow.get("jobs", {}).values())
+              prefix = re.search(r"startsWith\(\s*github\.event\.pull_request\.head\.ref\s*,\s*(['\"])(.*?)\1", conditions)
+              print(f"MOCK_PR_HEAD={prefix.group(2) + 'mock' if prefix else 'mock/workflow-test'}")
+              merged = "false" if re.search(r"pull_request\.merged\s*==\s*false", conditions) else "true"
+              print(f"MOCK_PR_MERGED={merged}")
+          branches = settings.get("branches", []) if isinstance(settings, dict) else []
+          literal = next((branch for branch in branches if not any(char in branch for char in "*?![")), None)
+          if literal:
+              print(f"BASE_BRANCH={literal}")
+              print(f"SOURCE_REF=refs/heads/{literal}")
+          PYTHON
+      - name: Validate supported mock activity
+        run: |
+          set -euo pipefail
+          case "$SELECTED_EVENT:${SELECTED_ACTIVITY:-}" in
+            pull_request:|pull_request:opened|pull_request:closed|pull_request:edited|pull_request:reopened|issues:|issues:opened|release:|release:published|repository_dispatch:*) ;;
+            *) echo "No API activity generator for $SELECTED_EVENT:${SELECTED_ACTIVITY:-}" >&2; exit 2 ;;
+          esac
+      - name: Prepare container configuration
+        run: |
+          set -euo pipefail
+          SOURCE_EVENT_FILE="$RUNNER_TEMP/mock-source-event.json"
+          MOCK_SNAPSHOT_FILE="$RUNNER_TEMP/mock-snapshot.json"
+          {
+            echo "SOURCE_EVENT_FILE=$SOURCE_EVENT_FILE"
+            echo "MOCK_SNAPSHOT_FILE=$MOCK_SNAPSHOT_FILE"
+            echo "COMPOSE_FILE=$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-dispatch-service.yaml"
+          } >> "$GITHUB_ENV"
+          echo '::add-mask::mock-token'
+          echo '{}' > "$SOURCE_EVENT_FILE"
+          chmod 600 "$SOURCE_EVENT_FILE"
+          cat > "$RUNNER_TEMP/mock-dispatch-service.yaml" <<'OVERRIDE'
+          services:
+            github-emulator:
+              image: github-emulator-test:${COMPOSE_PROJECT_NAME}
+              volumes:
+                - ${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}
+                - ${RUNNER_TEMP}:${RUNNER_TEMP}
+              environment:
+                BOOTSTRAP_REPOSITORY: "0"
+                EMULATE_BASE_URL: https://github.emulator.test
+                GIT_CONFIG_COUNT: "1"
+                GIT_CONFIG_KEY_0: safe.directory
+                GIT_CONFIG_VALUE_0: ${GITHUB_WORKSPACE}
+            github-dispatcher:
+              image: github-emulator-test:${COMPOSE_PROJECT_NAME}
+              environment:
+                DISPATCH_IMAGE: github-emulator-test:${COMPOSE_PROJECT_NAME}
+          OVERRIDE
+      - name: Start mock GitHub, dispatcher, and HTTPS proxy
+        run: docker compose up --detach --wait --no-build
+      - name: Import checked-out repository without dispatching events
+        env:
+          PREPARE_PHASE: repository
+          MOCK_API_URL: http://127.0.0.1:4001
+        shell: >-
+          bash -c 'exec docker compose exec -T --workdir "$GITHUB_WORKSPACE"
+          --env PREPARE_PHASE --env MOCK_API_URL --env GITHUB_WORKSPACE
+          --env SOURCE_SHA --env SOURCE_REF --env SOURCE_EVENT_FILE
+          --env MOCK_SNAPSHOT_FILE --env SELECTED_EVENT
+          github-emulator bash --noprofile --norc -e -o pipefail "$1"' -- {0}
+        run: node dist/github-emulator/prepare-workflow.js
+      - name: Generate mock API activity
+        run: |
+          set -euo pipefail
+          docker compose exec -T --env SELECTED_EVENT --env SELECTED_ACTIVITY \
+            --env MOCK_PR_HEAD --env MOCK_PR_MERGED --env BASE_BRANCH \
+            github-dispatcher node --input-type=module <<'JAVASCRIPT'
+          const { TOKEN, REPO, BASE_BRANCH, SELECTED_EVENT, SELECTED_ACTIVITY, MOCK_PR_HEAD, MOCK_PR_MERGED } = process.env;
+          const upstream = 'http://github-emulator:4001';
+          const gateway = 'http://127.0.0.1:4002';
+          async function api(base, path, method = 'GET', body) {
+            const response = await fetch(`${base}/repos/${REPO}${path}`, {
+              method, headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+              body: body === undefined ? undefined : JSON.stringify(body),
+            });
+            if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`);
+            return response.status === 204 ? null : response.json();
+          }
+          // Setup calls bypass the gateway; only the intended activity is dispatched.
+          switch (SELECTED_EVENT) {
+            case 'pull_request': {
+              const action = SELECTED_ACTIVITY || 'opened';
+              const head = MOCK_PR_HEAD || 'mock/workflow-test';
+              const base = await api(upstream, `/git/ref/heads/${BASE_BRANCH}`);
+              await api(upstream, '/git/refs', 'POST', { ref: `refs/heads/${head}`, sha: base.object.sha });
+              const pr = await api(action === 'opened' ? gateway : upstream, '/pulls', 'POST', {
+                title: 'Mock workflow pull request', body: 'Generated by the V3 API activity test', head, base: BASE_BRANCH,
+              });
+              if (action === 'closed') {
+                if (MOCK_PR_MERGED === 'true') await api(gateway, `/pulls/${pr.number}/merge`, 'PUT', { merge_method: 'merge' });
+                else await api(gateway, `/pulls/${pr.number}`, 'PATCH', { state: 'closed' });
+              } else if (action === 'reopened') {
+                await api(upstream, `/pulls/${pr.number}`, 'PATCH', { state: 'closed' });
+                await api(gateway, `/pulls/${pr.number}`, 'PATCH', { state: 'open' });
+              } else if (action === 'edited') {
+                await api(gateway, `/pulls/${pr.number}`, 'PATCH', { title: 'Edited mock workflow pull request' });
+              }
+              break;
+            }
+            case 'issues':
+              await api(gateway, '/issues', 'POST', { title: 'Mock workflow issue' });
+              break;
+            case 'release':
+              await api(gateway, '/releases', 'POST', { tag_name: 'mock-dispatch-test', target_commitish: BASE_BRANCH, name: 'Mock release', draft: false });
+              break;
+            case 'repository_dispatch':
+              await api(gateway, '/dispatches', 'POST', { event_type: SELECTED_ACTIVITY || 'mock.workflow', client_payload: {} });
+              break;
+            default: throw new Error(`Unsupported event: ${SELECTED_EVENT}`);
+          }
+          JAVASCRIPT
+      - name: Wait for dispatched workflows
+        run: |
+          set -euo pipefail
+          docker compose exec -T github-dispatcher node --input-type=module <<'JAVASCRIPT'
+          const deadline = Date.now() + 15 * 60 * 1000;
+          while (Date.now() < deadline) {
+            const response = await fetch('http://127.0.0.1:4002/_dispatcher/status', {
+              headers: { Authorization: `Bearer ${process.env.TOKEN}` },
+            });
+            if (!response.ok) throw new Error(`Dispatcher status: ${response.status}`);
+            const status = await response.json();
+            if (status.accepted > 0 && status.pending === 0) {
+              console.log(JSON.stringify(status));
+              if (status.failed) throw new Error('A dispatched workflow failed; see dispatcher logs');
+              if (!status.workflows) throw new Error('The mock activity did not match any workflow');
+              process.exit(0);
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+          throw new Error('Timed out waiting for dispatched workflows');
+          JAVASCRIPT
+      - name: Collect service logs
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/mock-dispatch-service.yaml" ]]; then
+            docker compose logs --no-color | tee "$RUNNER_TEMP/mock-dispatch.log"
+          fi
+      - name: Save dispatcher logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-dispatch-context
+          path: ${{ runner.temp }}/mock-dispatch.log
+          if-no-files-found: ignore
+      - name: Remove mock services and private fixtures
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/mock-dispatch-service.yaml" ]]; then
+            docker compose down --volumes --remove-orphans
+          fi
+          rm -f "$SOURCE_EVENT_FILE" "$MOCK_SNAPSHOT_FILE" "$RUNNER_TEMP/mock-dispatch-service.yaml"
