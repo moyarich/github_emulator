@@ -20,7 +20,9 @@
   "type": "commonjs",
   "dependencies": {
     "emulate": "0.12.3",
-    "portless": "0.15.11"
+    "portless": "0.15.11",
+    "yaml": "^2.9.1",
+    "ajv": "^8.17.1"
   },
   "private": true,
   "engines": {
