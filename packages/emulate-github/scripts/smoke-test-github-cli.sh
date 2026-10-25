@@ -20,7 +20,6 @@ source "$current_dir/start-emulator.sh"
 # Configuration
 # -----------------------------------------------------------------------------
 
-readonly ROOT_DIR="${ROOT_DIR:-/app}"
 readonly EMULATE_PORT="${EMULATE_PORT:-4001}"
 readonly API="${API:-http://localhost:$EMULATE_PORT}"
 readonly REPO="${REPO:-moyarich/release-smoke-test}"
@@ -456,8 +455,8 @@ main() (
   if emulator_is_up; then
     warn "Reusing emulator at $API"
   else
-    [[ -x "$ROOT_DIR/node_modules/.bin/emulate" ]] ||
-      fail "Install emulator dependencies with npm ci"
+    command -v emulate >/dev/null 2>&1 ||
+      fail "Emulator CLI not found on PATH; install workspace dependencies with npm ci"
 
     case "$API" in
       "http://localhost:$EMULATE_PORT" | \
