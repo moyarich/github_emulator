@@ -37,6 +37,7 @@ WORKDIR /app
 
 # Install the standalone runtime directly; no project manifests are needed.
 RUN npm install --no-audit --no-fund emulate portless yaml ajv
+RUN gh extension install nektos/gh-act
 
 # Install the standalone act CLI; act-latest supplies its runner environment.
 RUN architecture="$(uname -m)" \
@@ -54,8 +55,6 @@ RUN ln -s /app/scripts/start-emulator.sh /usr/local/bin/start-emulator.sh \
   && ln -s /app/scripts/smoke-test-github-cli.sh /usr/local/bin/smoke-test-github-cli.sh \
   && ln -s /app/scripts/smoke-test-api.sh /usr/local/bin/smoke-test-api.sh
 
-FROM dependencies AS shell
-CMD [ "sh" ]
 
 FROM dependencies AS smoke-test
 CMD ["/usr/local/bin/smoke-test-api.sh"]
