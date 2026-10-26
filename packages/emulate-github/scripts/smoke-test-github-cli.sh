@@ -403,11 +403,12 @@ run_act() {
   local event_file="$2"
 
   if [[ "$RUN_ACT" != 1 ]]; then
-    warn "Skipped act (RUN_ACT=0)"
+    warn "Skipped gh act (RUN_ACT=0)"
     return 0
   fi
 
-  require_commands act
+  require_commands gh
+  gh act --version >/dev/null || fail "gh-act extension not installed; run: gh extension install nektos/gh-act"
 
   [[ -f "$WORKFLOW_FILE" ]] ||
     fail "Workflow not found: $WORKFLOW_FILE"
@@ -416,11 +417,11 @@ run_act() {
 
   info "Event payload: $event_file"
 
-  act pull_request \
+  gh act pull_request \
     -W "$WORKFLOW_FILE" \
     -e "$event_file"
 
-  ok "act completed"
+  ok "gh act completed"
 }
 
 # -----------------------------------------------------------------------------
@@ -508,7 +509,7 @@ main() (
   step 6 "Verify merged state"
   verify_merged_state "$pr_number"
 
-  step 7 "Replay merged event with act"
+  step 7 "Replay merged event with gh act"
   run_act "$pr_number" "$run_dir/merged-pr-event.json"
 
   printf '\n✔ Release smoke test completed successfully\n'
