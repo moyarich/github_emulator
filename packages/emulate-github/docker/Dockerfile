@@ -37,9 +37,23 @@ WORKDIR /app
 
 # Install the standalone runtime directly; no project manifests are needed.
 RUN npm install --no-audit --no-fund emulate portless yaml ajv
-# The gh-act extension supplies the act runner; no separate act binary is needed.
-RUN gh extension install nektos/gh-act \
-  && gh act --version
+# Install the public gh-act release directly into gh's extension directory.
+# gh extension install requires GH_TOKEN in CI, even for a public repository.
+# Avoid embedding authentication credentials in the Docker build.
+ARG GH_ACT_VERSION=v0.2.89
+RUN set -eu; \
+  architecture="$(uname -m)"; \
+  case "$architecture" in \
+    aarch64|arm64) architecture=arm64 ;; \
+    x86_64) architecture=amd64 ;; \
+    *) echo "Unsupported gh-act architecture: $architecture" >&2; exit 1 ;; \
+  esac; \
+  extension_dir="/root/.local/share/gh/extensions/gh-act"; \
+  mkdir -p "$extension_dir"; \
+  curl -fsSL "https://github.com/nektos/gh-act/releases/download/${GH_ACT_VERSION}/linux-${architecture}" \
+    -o "$extension_dir/gh-act"; \
+  chmod +x "$extension_dir/gh-act"; \
+  gh act --version
 ENV PATH="/app/node_modules/.bin:${PATH}"
 
 # Startup generates and edits emulate.config.yaml using the runtime environment.
