@@ -37,13 +37,9 @@ WORKDIR /app
 
 # Install the standalone runtime directly; no project manifests are needed.
 RUN npm install --no-audit --no-fund emulate portless yaml ajv
-RUN gh extension install nektos/gh-act
-
-# Install the standalone act CLI; act-latest supplies its runner environment.
-RUN architecture="$(uname -m)" \
-  && case "$architecture" in aarch64|arm64) architecture=arm64 ;; x86_64) architecture=x86_64 ;; *) exit 1 ;; esac \
-  && curl -fsSL "https://github.com/nektos/act/releases/download/v0.2.89/act_Linux_${architecture}.tar.gz" \
-    | tar -xz -C /usr/local/bin act
+# The gh-act extension supplies the act runner; no separate act binary is needed.
+RUN gh extension install nektos/gh-act \
+  && gh act --version
 ENV PATH="/app/node_modules/.bin:${PATH}"
 
 # Startup generates and edits emulate.config.yaml using the runtime environment.
