@@ -12,7 +12,9 @@ import { spawnSync } from "node:child_process";
 import { createEmulator, type Emulator } from "emulate";
 
 const env = process.env;
-const externalApi = env.API ?? (env.USE_PORTLESS === "1" ? "https://github.emulate.localhost" : undefined);
+const externalApi =
+  env.API ??
+  (env.USE_PORTLESS === "1" ? "https://github.emulate.localhost" : undefined);
 const repository = env.REPO ?? "moyarich/release-smoke-test";
 const [owner, repo] = repository.split("/");
 const token = env.TOKEN ?? env.GITHUB_TOKEN ?? "local-test-token";
@@ -63,7 +65,14 @@ async function main() {
           tokens: { [token]: { login: owner, scopes: ["repo", "user"] } },
           github: {
             users: [{ login: owner }],
-            repos: [{ owner, name: repo, auto_init: true, default_branch: baseBranch }],
+            repos: [
+              {
+                owner,
+                name: repo,
+                auto_init: true,
+                default_branch: baseBranch,
+              },
+            ],
           },
         },
       });
@@ -82,7 +91,11 @@ async function main() {
           message: "Seed test package",
           branch: baseBranch,
           content: Buffer.from(
-            JSON.stringify({ name: "@example/core", version: oldVersion }, null, 2) + "\n",
+            JSON.stringify(
+              { name: "@example/core", version: oldVersion },
+              null,
+              2,
+            ) + "\n",
           ).toString("base64"),
         },
       );
