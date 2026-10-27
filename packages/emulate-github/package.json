@@ -15,7 +15,7 @@
     "start:portless": "bash ./scripts/start-emulator.sh start --portless",
     "docker:reload": "docker compose exec -T github-emulator start-emulator.sh reload",
     "typecheck": "tsc --project tsconfig.json",
-    "test:api": "node --experimental-strip-types ./scripts/smoke-test-api.ts"
+    "test:api": "node --experimental-strip-types ./test/api.smoke-test.ts"
   },
   "keywords": [],
   "type": "commonjs",
