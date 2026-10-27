@@ -5,6 +5,9 @@ on:
     paths:
       - ".github/workflows/**"
       - "src/**"
+      - "packages/**"
+      - "apps/**"
+      - "actions/**"
       - "tests/**"
       - "package.json"
       - "package-lock.json"
@@ -14,6 +17,9 @@ on:
     paths:
       - ".github/workflows/**"
       - "src/**"
+      - "packages/**"
+      - "apps/**"
+      - "actions/**"
       - "tests/**"
       - "package.json"
       - "package-lock.json"

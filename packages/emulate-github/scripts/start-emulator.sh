@@ -77,33 +77,28 @@ emulator_prepare_seed() {
     (cd "$(dirname "$seed_path")" && emulate init --service github)
     template="$seed_path"
   fi
-  env REPO="$REPO" TOKEN="$TOKEN" BASE_BRANCH="$BASE_BRANCH" python3 - "$template" "$seed_path" <<'PYTHON'
-import os
-import sys
-from ruamel.yaml import YAML
-
-yaml = YAML()
-source, destination = sys.argv[1:]
-repository = os.environ["REPO"]
-token = os.environ["TOKEN"]
-branch = os.environ["BASE_BRANCH"]
-owner, name = repository.split("/", 1)
-with open(source, encoding="utf-8") as stream:
-    config = yaml.load(stream) or {}
-config.setdefault("tokens", {})[token] = {"login": owner, "scopes": ["repo", "user"]}
-github = config.setdefault("github", {})
-users = github.setdefault("users", [])
-if not any(user["login"] == owner for user in users):
-    users.append({"login": owner})
-repos = github.setdefault("repos", [])
-repo = next((repo for repo in repos if repo["owner"] == owner and repo["name"] == name), None)
-if repo is None:
-    repo = {"owner": owner, "name": name, "auto_init": True}
-    repos.append(repo)
-repo["default_branch"] = branch
-with open(destination, "w", encoding="utf-8") as stream:
-    yaml.dump(config, stream)
-PYTHON
+  env REPO="$REPO" TOKEN="$TOKEN" BASE_BRANCH="$BASE_BRANCH" node - "$template" "$seed_path" <<'JS'
+const fs = require('node:fs');
+const YAML = require('yaml');
+const [source, destination] = process.argv.slice(2);
+const [owner, name] = process.env.REPO.split('/', 2);
+const config = YAML.parse(fs.readFileSync(source, 'utf8')) ?? {};
+config.tokens ??= {};
+config.tokens[process.env.TOKEN] = {login: owner, scopes: ['repo', 'user']};
+config.github ??= {};
+config.github.users ??= [];
+if (!config.github.users.some(user => user.login === owner)) {
+  config.github.users.push({login: owner});
+}
+config.github.repos ??= [];
+let repo = config.github.repos.find(repo => repo.owner === owner && repo.name === name);
+if (!repo) {
+  repo = {owner, name, auto_init: true};
+  config.github.repos.push(repo);
+}
+repo.default_branch = process.env.BASE_BRANCH;
+fs.writeFileSync(destination, YAML.stringify(config));
+JS
 }
 
 # -----------------------------------------------------------------------------
@@ -287,20 +282,20 @@ emulator_validate_seed() {
   [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ && -n "$TOKEN" ]] || return 1
   git check-ref-format "refs/heads/$BASE_BRANCH" >/dev/null || return 1
   [[ ! -e "$secrets_path" ]] || { printf 'Generated secrets destination already exists\n' >&2; return 1; }
-  env REPO="$REPO" TOKEN="$TOKEN" python3 - "$seed_path" <<'PYTHON' > "$seed_path.json"
-import json
-import sys
-from ruamel.yaml import YAML
-with open(sys.argv[1]) as stream:
-    config = YAML(typ="safe").load(stream)
-import os
-owner, name = os.environ["REPO"].split("/", 1)
-if os.environ["TOKEN"] not in config.get("tokens", {}):
-    raise SystemExit("Seed must contain the configured TOKEN")
-if not any(repo.get("owner") == owner and repo.get("name") == name for repo in config.get("github", {}).get("repos", [])):
-    raise SystemExit("Seed must contain the configured REPO")
-json.dump(config, sys.stdout)
-PYTHON
+  env REPO="$REPO" TOKEN="$TOKEN" node - "$seed_path" <<'JS' > "$seed_path.json"
+const fs = require('node:fs');
+const YAML = require('yaml');
+const config = YAML.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (!config || typeof config !== 'object') throw new Error('Invalid YAML seed');
+const [owner, name] = process.env.REPO.split('/', 2);
+if (!Object.hasOwn(config.tokens ?? {}, process.env.TOKEN)) {
+  throw new Error('Seed must contain the configured TOKEN');
+}
+if (!(config.github?.repos ?? []).some(repo => repo.owner === owner && repo.name === name)) {
+  throw new Error('Seed must contain the configured REPO');
+}
+process.stdout.write(JSON.stringify(config));
+JS
   node --input-type=module - "$(command -v emulate)" "$seed_path.json" <<'JS'
 import {readFileSync, realpathSync} from "node:fs";
 import {dirname, resolve} from "node:path";
