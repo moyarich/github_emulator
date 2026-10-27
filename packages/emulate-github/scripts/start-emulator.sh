@@ -113,7 +113,7 @@ emulator_api() {
   curl -fsS --max-time 2 -o /dev/null \
     -X "$method" \
     -H "Authorization: Bearer $TOKEN" \
-    "${API}${path}" \
+    "${GITHUB_API_URL}${path}" \
     "$@"
 }
 
@@ -213,7 +213,7 @@ emulator_print_auth_instructions() {
 
 emulator_print_docker_instructions() {
   printf '  From Docker containers on your Mac: http://host.docker.internal:%s\n' \
-    "${HOST_PORT:-$EMULATE_PORT}"
+    "${EMULATOR_PORT:-$EMULATE_PORT}"
 
   if [[ -n "${GH_HOST:-}" ]]; then
     printf '  HTTPS proxy (Compose): https://%s inside the Docker network.\n' \
@@ -338,7 +338,7 @@ emulator_main() {
   local REPO="${REPO:-moyarich/release-smoke-test}" BASE_BRANCH="${BASE_BRANCH:-main}"
   local MANIFEST_PATH="${MANIFEST_PATH:-packages/core/package.json}" OLD_VERSION="${OLD_VERSION:-1.0.0}"
   local CONFIG_FILE="${CONFIG_FILE:-}" SEED_FILE="${SEED_FILE:-}" SEED_SOURCE=""
-  local EMULATE_BASE_URL="${EMULATE_BASE_URL:-}" PUBLIC_API="${PUBLIC_API:-}"
+  local EMULATE_BASE_URL="${EMULATE_BASE_URL:-}" EMULATOR_PUBLIC_URL="${EMULATOR_PUBLIC_URL:-}"
   local BOOTSTRAP_REPOSITORY="${BOOTSTRAP_REPOSITORY:-1}" GENERATED_SECRETS_FILE="${GENERATED_SECRETS_FILE:-}"
   while [[ $# -gt 0 ]]; do
     case "$1" in
