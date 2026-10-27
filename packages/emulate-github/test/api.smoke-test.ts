@@ -3,7 +3,7 @@
  *
  * Node >= 24: node --experimental-strip-types test/api.smoke-test.ts
  * Starts an isolated createEmulator instance by default.
- * Set API to target an existing CLI/Portless instance instead.
+ * Set API (as in compose.yaml) to target an existing emulator.\n * PUBLIC_API and EMULATE_BASE_URL are supported as fallbacks.
  */
 import { mkdtemp, writeFile, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,7 +13,9 @@ import { createEmulator, type Emulator } from "emulate";
 
 const env = process.env;
 const externalApi =
-  env.API ??
+  env.API ||
+  env.PUBLIC_API ||
+  env.EMULATE_BASE_URL ||
   (env.USE_PORTLESS === "1" ? "https://github.emulate.localhost" : undefined);
 const repository = env.REPO ?? "moyarich/release-smoke-test";
 const [owner, repo] = repository.split("/");
