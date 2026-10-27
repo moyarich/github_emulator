@@ -298,7 +298,10 @@ async function main() {
     if (!runAct) {
       info("Skipped (set RUN_ACT=1 to enable)");
     } else {
-      checkCommand("act");
+      // Prefer the GitHub CLI extension when installed, but keep standalone act supported.
+      const ghAct = spawnSync("gh", ["act", "--help"], { stdio: "ignore" });
+      const runner = !ghAct.error && ghAct.status === 0 ? "gh" : "act";
+      if (runner === "act") checkCommand("act");
       await access(workflowFile);
       const eventFile = join(temp, "merged-pr-event.json");
       await writeFile(
@@ -315,14 +318,13 @@ async function main() {
         ),
       );
       info(`Event payload written to ${eventFile}`);
-      const result = spawnSync(
-        "act",
-        ["pull_request", "-W", workflowFile, "-e", eventFile],
-        {
-          stdio: "inherit",
-          env: { ...env, API: baseUrl },
-        },
-      );
+      const args = ["pull_request", "-W", workflowFile, "-e", eventFile];
+      if (runner === "gh") args.unshift("act");
+      info(`Running ${runner} ${args.join(" ")}`);
+      const result = spawnSync(runner, args, {
+        stdio: "inherit",
+        env: { ...env, API: baseUrl },
+      });
       assert(
         !result.error && result.status === 0,
         `act failed (exit code ${result.status})`,
