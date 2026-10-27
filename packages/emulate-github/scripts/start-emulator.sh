@@ -113,7 +113,7 @@ emulator_api() {
   curl -fsS --max-time 2 -o /dev/null \
     -X "$method" \
     -H "Authorization: Bearer $TOKEN" \
-    "${GITHUB_API_URL}${path}" \
+    "${GITHUB_EMULATOR_URL}${path}" \
     "$@"
 }
 
@@ -135,7 +135,7 @@ emulator_bootstrap_repository() {
 # ----------------------------------------------------------------------------
 # Step 1: Start the GitHub emulator
 # ----------------------------------------------------------------------------
-emulator_is_up() { curl -fsS -o /dev/null --max-time 2 "$GITHUB_API_URL/repos/$REPO" -H "Authorization: Bearer $TOKEN" 2>/dev/null; }
+emulator_is_up() { curl -fsS -o /dev/null --max-time 2 "$GITHUB_EMULATOR_URL/repos/$REPO" -H "Authorization: Bearer $TOKEN" 2>/dev/null; }
 
 emulator_start_emulator() {
   local seed_path="$1"
@@ -350,7 +350,7 @@ emulator_main() {
       *) emulator_die "Unknown option: $1" ;;
     esac
   done
-  local GITHUB_API_URL="${GITHUB_API_URL:-${API:-http://127.0.0.1:$EMULATE_PORT}}"
+  local GITHUB_EMULATOR_URL="${GITHUB_EMULATOR_URL:-http://127.0.0.1:$EMULATE_PORT}"
   local RESET="" BOLD="" RED="" GREEN="" YELLOW="" BLUE="" MAGENTA="" CYAN="" GRAY=""
   local run_dir="" seed_path secrets_path base_url emu_pid="" exit_code=0
   local template="$PWD/emulate.config.yaml" reload_requested=0 serial=0 generation=0
@@ -392,7 +392,7 @@ emulator_main() {
           kill "$emu_pid" 2>/dev/null || true
           wait "$emu_pid" 2>/dev/null || true
         elif emulator_is_up; then
-          emulator_warn "Emulator already responding at $GITHUB_API_URL; reusing it without reload supervision"
+          emulator_warn "Emulator already responding at $GITHUB_EMULATOR_URL; reusing it without reload supervision"
           emulator_cleanup "" "$run_dir"
           trap - EXIT INT TERM HUP
           return
@@ -407,7 +407,7 @@ emulator_main() {
         mkdir -p "$control"
         chmod 700 "$control"
         printf '%s\n' "$$" > "$control/pid"
-        printf 'GITHUB_API_URL=%q\nREPO=%q\nTOKEN=%q\n' "$GITHUB_API_URL" "$REPO" "$TOKEN" > "$control/health.env.tmp"
+        printf 'GITHUB_EMULATOR_URL=%q\nREPO=%q\nTOKEN=%q\n' "$GITHUB_EMULATOR_URL" "$REPO" "$TOKEN" > "$control/health.env.tmp"
         chmod 600 "$control/health.env.tmp"
         mv "$control/health.env.tmp" "$control/health.env"
         printf '%s success\n' "$serial" > "$control/status.tmp"
