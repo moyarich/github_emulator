@@ -13,9 +13,7 @@ import { createEmulator, type Emulator } from "emulate";
 
 const env = process.env;
 const externalApi =
-  env.API ||
-  env.PUBLIC_API ||
-  env.EMULATE_BASE_URL ||
+  env.GITHUB_API_URL ||
   (env.USE_PORTLESS === "1" ? "https://github.emulate.localhost" : undefined);
 const repository = env.REPO ?? "moyarich/release-smoke-test";
 const [owner, repo] = repository.split("/");
@@ -310,7 +308,7 @@ async function main() {
       info(`Running ${runner} ${args.join(" ")}`);
       const result = spawnSync(runner, args, {
         stdio: "inherit",
-        env: { ...env, API: baseUrl },
+        env: { ...env, GITHUB_API_URL: baseUrl },
       });
       assert(
         !result.error && result.status === 0,
