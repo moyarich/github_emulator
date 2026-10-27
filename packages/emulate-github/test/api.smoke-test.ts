@@ -2,22 +2,17 @@
  * Octokit equivalent of smoke-test-api.sh.
  *
  * Node >= 24: node --experimental-strip-types test/api.smoke-test.ts
- * Set API or GITHUB_API_URL to target a running emulator (including Portless).
- * By default, launches the emulator if the local API is unavailable.
+ * Starts an isolated createEmulator instance by default.
+ * Set API to target an existing CLI/Portless instance instead.
  */
 import { mkdtemp, writeFile, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { createEmulator, type Emulator } from "emulate";
 
 const env = process.env;
-const port = env.EMULATE_PORT ?? "4001";
-const baseUrl =
-  env.API ??
-  env.GITHUB_API_URL ??
-  (env.USE_PORTLESS === "1"
-    ? "https://github.emulate.localhost"
-    : `http://localhost:${port}`);
+const externalApi = env.API ?? (env.USE_PORTLESS === "1" ? "https://github.emulate.localhost" : undefined);
 const repository = env.REPO ?? "moyarich/release-smoke-test";
 const [owner, repo] = repository.split("/");
 const token = env.TOKEN ?? env.GITHUB_TOKEN ?? "local-test-token";
@@ -31,7 +26,6 @@ const newVersion = env.NEW_VERSION ?? "1.1.0";
 const workflowFile = env.WORKFLOW_FILE;
 const runAct = env.RUN_ACT === "1";
 const updatePrBody = env.UPDATE_PR_BODY === "1";
-const keepEmulator = env.KEEP_EMULATOR === "1";
 
 function step(number: number, title: string) {
   console.log(`\n━━━ Step ${number}: ${title} ━━━`);
@@ -54,64 +48,45 @@ function checkCommand(command: string) {
 async function main() {
   assert(owner && repo, `Invalid REPO: ${repository} (expected owner/repo)`);
   const { Octokit } = await import("@octokit/rest");
-  const client = new Octokit({ auth: token, baseUrl });
   const temp = await mkdtemp(join(tmpdir(), "github-emulator-api-"));
-  let emulator: ReturnType<typeof spawn> | undefined;
-
-  // The server is independent of this test; aborting the test only stops a server
-  // that this invocation started.
+  let emulator: Emulator | undefined;
+  let baseUrl = externalApi;
   const repoParams = { owner, repo };
-  async function isUp(): Promise<boolean> {
-    try {
-      await client.request("GET /repos/{owner}/{repo}", repoParams);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  async function waitForEmulator() {
-    for (let attempt = 0; attempt < 60; attempt++) {
-      if (await isUp()) return;
-      assert(
-        emulator?.exitCode === null && !emulator?.killed,
-        "Emulator exited before becoming ready",
-      );
-      await new Promise((done) => setTimeout(done, 1000));
-    }
-    throw new Error(`Emulator did not become ready at ${baseUrl}`);
-  }
   try {
-    step(1, "Start or reuse GitHub emulator");
-    if (await isUp()) {
-      info(`Reusing emulator at ${baseUrl}`);
-    } else {
-      const localApi = new Set([
-        `http://localhost:${port}`,
-        `http://127.0.0.1:${port}`,
-      ]);
-      assert(
-        localApi.has(baseUrl),
-        `External emulator unavailable at ${baseUrl}; start Portless first (npm run start:portless)`,
-      );
-      checkCommand("bash");
-      // The wrapper prepares seeded state and bootstraps the manifest itself.
-      // It accepts the existing environment settings such as CONFIG_FILE.
-      const script = resolve(process.cwd(), "scripts/start-emulator.sh");
-      emulator = spawn("bash", [script, "start"], {
-        cwd: process.cwd(),
-        env: {
-          ...env,
-          API: baseUrl,
-          REPO: repository,
-          TOKEN: token,
-          EMULATE_PORT: port,
+    step(1, "Start isolated GitHub emulator or connect to existing service");
+    if (!baseUrl) {
+      emulator = await createEmulator({
+        service: "github",
+        port: 0,
+        hostname: "127.0.0.1",
+        seed: {
+          tokens: { [token]: { login: owner, scopes: ["repo", "user"] } },
+          github: {
+            users: [{ login: owner }],
+            repos: [{ owner, name: repo, auto_init: true, default_branch: baseBranch }],
+          },
         },
-        stdio: ["ignore", "ignore", "inherit"],
       });
-      emulator.on("error", (error: Error) =>
-        console.error("Emulator failed:", error.message),
+      baseUrl = emulator.url;
+      info(`Started isolated emulator at ${baseUrl}`);
+    } else {
+      info(`Using externally managed emulator at ${baseUrl}`);
+    }
+    const client = new Octokit({ auth: token, baseUrl });
+    if (emulator) {
+      const { data: seeded } = await client.request(
+        "PUT /repos/{owner}/{repo}/contents/{path}",
+        {
+          ...repoParams,
+          path: manifestPath,
+          message: "Seed test package",
+          branch: baseBranch,
+          content: Buffer.from(
+            JSON.stringify({ name: "@example/core", version: oldVersion }, null, 2) + "\n",
+          ).toString("base64"),
+        },
       );
-      await waitForEmulator();
+      assert(seeded.commit.sha, "Could not bootstrap manifest");
     }
     const { data: repoData } = await client.request(
       "GET /repos/{owner}/{repo}",
@@ -330,12 +305,7 @@ async function main() {
     }
     console.log("\n✔ Release smoke test completed successfully");
   } finally {
-    if (emulator && !keepEmulator) {
-      emulator.kill("SIGTERM");
-    } else if (emulator && keepEmulator) {
-      info("KEEP_EMULATOR=1: leaving emulator running");
-      emulator.unref();
-    }
+    await emulator?.close();
     await rm(temp, { recursive: true, force: true });
   }
 }
