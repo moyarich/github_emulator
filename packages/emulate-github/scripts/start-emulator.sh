@@ -113,7 +113,7 @@ emulator_api() {
   curl -fsS --max-time 2 -o /dev/null \
     -X "$method" \
     -H "Authorization: Bearer $TOKEN" \
-    "${GITHUB_EMULATOR_URL}${path}" \
+    "${GITHUB_EMULATOR_URL:-${API:-http://127.0.0.1:${EMULATE_PORT:-4001}}}${path}" \
     "$@"
 }
 
@@ -135,7 +135,7 @@ emulator_bootstrap_repository() {
 # ----------------------------------------------------------------------------
 # Step 1: Start the GitHub emulator
 # ----------------------------------------------------------------------------
-emulator_is_up() { curl -fsS -o /dev/null --max-time 2 "$GITHUB_EMULATOR_URL/repos/$REPO" -H "Authorization: Bearer $TOKEN" 2>/dev/null; }
+emulator_is_up() { curl -fsS -o /dev/null --max-time 2 "${GITHUB_EMULATOR_URL:-${API:-http://127.0.0.1:${EMULATE_PORT:-4001}}}/repos/$REPO" -H "Authorization: Bearer $TOKEN" 2>/dev/null; }
 
 emulator_start_emulator() {
   local seed_path="$1"
