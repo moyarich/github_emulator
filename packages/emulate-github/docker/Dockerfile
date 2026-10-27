@@ -36,12 +36,24 @@ FROM tools AS dependencies
 WORKDIR /app
 
 # Install the standalone runtime directly; no project manifests are needed.
-RUN npm install --no-audit --no-fund emulate@0.12.3 portless@0.15.11
-# Install the standalone act CLI; act-latest supplies its runner environment.
-RUN architecture="$(uname -m)" \
-  && case "$architecture" in aarch64|arm64) architecture=arm64 ;; x86_64) architecture=x86_64 ;; *) exit 1 ;; esac \
-  && curl -fsSL "https://github.com/nektos/act/releases/download/v0.2.89/act_Linux_${architecture}.tar.gz" \
-    | tar -xz -C /usr/local/bin act
+RUN npm install --no-audit --no-fund emulate portless yaml ajv
+# Install the public gh-act release directly into gh's extension directory.
+# gh extension install requires GH_TOKEN in CI, even for a public repository.
+# Avoid embedding authentication credentials in the Docker build.
+ARG GH_ACT_VERSION=v0.2.89
+RUN set -eu; \
+  architecture="$(uname -m)"; \
+  case "$architecture" in \
+    aarch64|arm64) architecture=arm64 ;; \
+    x86_64) architecture=amd64 ;; \
+    *) echo "Unsupported gh-act architecture: $architecture" >&2; exit 1 ;; \
+  esac; \
+  extension_dir="/root/.local/share/gh/extensions/gh-act"; \
+  mkdir -p "$extension_dir"; \
+  curl -fsSL "https://github.com/nektos/gh-act/releases/download/${GH_ACT_VERSION}/linux-${architecture}" \
+    -o "$extension_dir/gh-act"; \
+  chmod +x "$extension_dir/gh-act"; \
+  gh act --version
 ENV PATH="/app/node_modules/.bin:${PATH}"
 
 # Startup generates and edits emulate.config.yaml using the runtime environment.
@@ -53,8 +65,6 @@ RUN ln -s /app/scripts/start-emulator.sh /usr/local/bin/start-emulator.sh \
   && ln -s /app/scripts/smoke-test-github-cli.sh /usr/local/bin/smoke-test-github-cli.sh \
   && ln -s /app/scripts/smoke-test-api.sh /usr/local/bin/smoke-test-api.sh
 
-FROM dependencies AS shell
-CMD [ "sh" ]
 
 FROM dependencies AS smoke-test
 CMD ["/usr/local/bin/smoke-test-api.sh"]
