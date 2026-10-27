@@ -13,7 +13,7 @@ import { createEmulator, type Emulator } from "emulate";
 
 const env = process.env;
 const externalApi =
-  env.GITHUB_API_URL ||
+  env.GITHUB_EMULATOR_URL ||
   (env.USE_PORTLESS === "1" ? "https://github.emulate.localhost" : undefined);
 const repository = env.REPO ?? "moyarich/release-smoke-test";
 const [owner, repo] = repository.split("/");
