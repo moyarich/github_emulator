@@ -5,7 +5,7 @@
  * Set API or GITHUB_API_URL to target a running emulator (including Portless).
  * By default, launches the emulator if the local API is unavailable.
  */
-const { mkdtemp, readFile, writeFile, rm, access } = require("node:fs/promises") as typeof import("node:fs/promises");
+const { mkdtemp, writeFile, rm, access } = require("node:fs/promises") as typeof import("node:fs/promises");
 const { tmpdir } = require("node:os") as typeof import("node:os");
 const { join, resolve, basename } = require("node:path") as typeof import("node:path");
 const { spawn, spawnSync } = require("node:child_process") as typeof import("node:child_process");
