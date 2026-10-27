@@ -3,7 +3,7 @@
  *
  * Node >= 24: node --experimental-strip-types test/api.smoke-test.ts
  * Starts an isolated createEmulator instance by default.
- * Set API (as in compose.yaml) to target an existing emulator.\n * PUBLIC_API and EMULATE_BASE_URL are supported as fallbacks.
+ * Set GITHUB_EMULATOR_URL to connect to an existing CLI/Portless emulator.
  */
 import { mkdtemp, writeFile, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
