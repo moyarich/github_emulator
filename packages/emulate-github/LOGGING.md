@@ -9,6 +9,35 @@ npm run docker:logs
 docker compose logs --follow --timestamps --tail=100
 ```
 
+## Browser-based log viewer (Dozzle)
+
+The optional `log-viewer` service provides a live web interface for the logs
+of Docker containers on the same Docker host, including containers launched
+by `act` on that host.
+
+```bash
+docker compose --profile logs up -d
+# Open http://localhost:8080
+```
+
+Set `LOG_VIEWER_PORT` to change the local port. The viewer is bound to
+`127.0.0.1` by default. For remote access, use a private SSH tunnel:
+
+```bash
+ssh -L 8080:127.0.0.1:8080 user@docker-host
+```
+
+Dozzle reads through the Docker API. **Even a read-only mount of
+`/var/run/docker.sock` grants high-trust access to Docker; it is not a
+read-only authorization boundary.** Do not expose the viewer to the public
+internet. Use a dedicated Docker socket proxy for stronger isolation.
+
+Docker must retain readable logs for a container to display them in Dozzle.
+The optional `compose.logging.yaml` changes the logging driver to
+`syslog` and may prevent Dozzle from seeing those logs if Docker does not
+retain a local cache. Use the default local Docker logging configuration for
+the web viewer; use the syslog override when you need external collection.
+
 ## Forward logs to an external collector
 
 `compose.logging.yaml` is an optional override that forwards stdout/stderr
