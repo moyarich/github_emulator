@@ -107,6 +107,19 @@ services:
       timeout: 3s
       retries: 12
 
+  log-viewer:
+    profiles: [logs]
+    image: amir20/dozzle:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LOG_VIEWER_PORT:-8080}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_ENABLE_ACTIONS: "false"
+      DOZZLE_ENABLE_SHELL: "false"
+
 volumes:
   proxy-data:
   proxy-config:
