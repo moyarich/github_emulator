@@ -8,7 +8,7 @@
 const { mkdtemp, writeFile, rm, access } =
   require("node:fs/promises") as typeof import("node:fs/promises");
 const { tmpdir } = require("node:os") as typeof import("node:os");
-const { join, resolve, basename } =
+const { join, resolve } =
   require("node:path") as typeof import("node:path");
 const { spawn, spawnSync } =
   require("node:child_process") as typeof import("node:child_process");
@@ -31,8 +31,7 @@ const releaseBranch =
 const manifestPath = env.MANIFEST_PATH ?? "packages/core/package.json";
 const oldVersion = env.OLD_VERSION ?? "1.0.0";
 const newVersion = env.NEW_VERSION ?? "1.1.0";
-const workflowFile =
-  env.WORKFLOW_FILE ?? ".github/workflows/smoke-test_release-approved-pr.yml";
+const workflowFile = env.WORKFLOW_FILE;
 const runAct = env.RUN_ACT === "1";
 const updatePrBody = env.UPDATE_PR_BODY === "1";
 const keepEmulator = env.KEEP_EMULATOR === "1";
@@ -294,7 +293,7 @@ async function main() {
     );
     ok(`${baseBranch} has @example/core@${manifest.version}`);
 
-    step(7, `Test ${basename(workflowFile)} with nektos/act`);
+    step(7, `Replay merged pull_request event with nektos/act`);
     if (!runAct) {
       info("Skipped (set RUN_ACT=1 to enable)");
     } else {
@@ -302,7 +301,7 @@ async function main() {
       const ghAct = spawnSync("gh", ["act", "--help"], { stdio: "ignore" });
       const runner = !ghAct.error && ghAct.status === 0 ? "gh" : "act";
       if (runner === "act") checkCommand("act");
-      await access(workflowFile);
+      if (workflowFile) await access(workflowFile);
       const eventFile = join(temp, "merged-pr-event.json");
       await writeFile(
         eventFile,
@@ -318,7 +317,8 @@ async function main() {
         ),
       );
       info(`Event payload written to ${eventFile}`);
-      const args = ["pull_request", "-W", workflowFile, "-e", eventFile];
+      const args = ["pull_request", "-e", eventFile];
+      if (workflowFile) args.push("-W", workflowFile);
       if (runner === "gh") args.unshift("act");
       info(`Running ${runner} ${args.join(" ")}`);
       const result = spawnSync(runner, args, {
