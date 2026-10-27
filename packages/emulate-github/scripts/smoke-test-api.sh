@@ -25,7 +25,7 @@ source "$current_dir/start-emulator.sh"
 # ----------------------------------------------------------------------------
 ROOT_DIR="/app"
 EMULATE_PORT="${EMULATE_PORT:-4001}"
-export API="${API:-http://localhost:$EMULATE_PORT}"
+export API="${GITHUB_EMULATOR_URL:-http://localhost:$EMULATE_PORT}"
 export REPO="${REPO:-moyarich/release-smoke-test}"   # seeded in the emulator
 export TOKEN="${TOKEN:-local-test-token}"
 
@@ -116,7 +116,7 @@ start_emulator() {
   local SEED_SOURCE="${CONFIG_FILE:-${SEED_FILE:-}}"
   local seed_path="$run_dir/emulate.config.yaml"
   local USE_PORTLESS="${USE_PORTLESS:-0}" EMU_HOST="${EMU_HOST:-127.0.0.1}"
-  [[ "$API" == "http://localhost:$EMULATE_PORT" || "$API" == "http://127.0.0.1:$EMULATE_PORT" ]] || fail "External API unavailable: $API"
+  [[ "$API" == "http://localhost:$EMULATE_PORT" || "$API" == "http://127.0.0.1:$EMULATE_PORT" ]] || fail "External emulator unavailable: $API"
   emulator_prepare_seed "$seed_path" "$PWD/emulate.config.yaml"
   emulator_start_emulator "$seed_path" "$(emulator_resolve_secrets_path "$run_dir")" >"$EMU_LOG" 2>&1 &
   EMU_PID=$!
