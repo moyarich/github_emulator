@@ -34,7 +34,7 @@ emulator_resolve_base_url() {
   elif [[ "${USE_PORTLESS:-0}" == 1 ]]; then
     printf '%s\n' 'https://github.emulate.localhost'
   else
-    printf '%s\n' "${PUBLIC_API:-http://localhost:$EMULATE_PORT}"
+    printf '%s\n' "${EMULATOR_PUBLIC_URL:-http://localhost:$EMULATE_PORT}"
   fi
 }
 
@@ -135,7 +135,7 @@ emulator_bootstrap_repository() {
 # ----------------------------------------------------------------------------
 # Step 1: Start the GitHub emulator
 # ----------------------------------------------------------------------------
-emulator_is_up() { curl -fsS -o /dev/null --max-time 2 "$API/repos/$REPO" -H "Authorization: Bearer $TOKEN" 2>/dev/null; }
+emulator_is_up() { curl -fsS -o /dev/null --max-time 2 "$GITHUB_API_URL/repos/$REPO" -H "Authorization: Bearer $TOKEN" 2>/dev/null; }
 
 emulator_start_emulator() {
   local seed_path="$1"
@@ -257,7 +257,7 @@ import sys
 from pathlib import Path
 
 source, destination = map(Path, sys.argv[1:])
-allowed = set("REPO TOKEN BASE_BRANCH CONFIG_FILE SEED_FILE MANIFEST_PATH OLD_VERSION EMULATE_BASE_URL PUBLIC_API BOOTSTRAP_REPOSITORY EMULATE_PORT EMU_HOST USE_PORTLESS GENERATED_SECRETS_FILE".split())
+allowed = set("REPO TOKEN BASE_BRANCH CONFIG_FILE SEED_FILE MANIFEST_PATH OLD_VERSION EMULATE_BASE_URL EMULATOR_PUBLIC_URL BOOTSTRAP_REPOSITORY EMULATE_PORT EMU_HOST USE_PORTLESS GENERATED_SECRETS_FILE".split())
 lines = []
 for number, line in enumerate(source.read_text().splitlines() if sys.argv[1] and source.exists() else [], 1):
     line = line.strip()
@@ -350,7 +350,7 @@ emulator_main() {
       *) emulator_die "Unknown option: $1" ;;
     esac
   done
-  local API="${API:-http://127.0.0.1:$EMULATE_PORT}"
+  local GITHUB_API_URL="${GITHUB_API_URL:-${API:-http://127.0.0.1:$EMULATE_PORT}}"
   local RESET="" BOLD="" RED="" GREEN="" YELLOW="" BLUE="" MAGENTA="" CYAN="" GRAY=""
   local run_dir="" seed_path secrets_path base_url emu_pid="" exit_code=0
   local template="$PWD/emulate.config.yaml" reload_requested=0 serial=0 generation=0
@@ -364,7 +364,7 @@ emulator_main() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'reload_requested=1' HUP
-  for key in REPO TOKEN BASE_BRANCH CONFIG_FILE SEED_FILE MANIFEST_PATH OLD_VERSION EMULATE_BASE_URL PUBLIC_API BOOTSTRAP_REPOSITORY EMULATE_PORT EMU_HOST USE_PORTLESS GENERATED_SECRETS_FILE; do
+  for key in REPO TOKEN BASE_BRANCH CONFIG_FILE SEED_FILE MANIFEST_PATH OLD_VERSION EMULATE_BASE_URL EMULATOR_PUBLIC_URL BOOTSTRAP_REPOSITORY EMULATE_PORT EMU_HOST USE_PORTLESS GENERATED_SECRETS_FILE; do
     printf '%s=%q\n' "$key" "${!key}" >> "$run_dir/base.env"
   done
   touch "$run_dir/active.env"
@@ -392,7 +392,7 @@ emulator_main() {
           kill "$emu_pid" 2>/dev/null || true
           wait "$emu_pid" 2>/dev/null || true
         elif emulator_is_up; then
-          emulator_warn "Emulator already responding at $API; reusing it without reload supervision"
+          emulator_warn "Emulator already responding at $GITHUB_API_URL; reusing it without reload supervision"
           emulator_cleanup "" "$run_dir"
           trap - EXIT INT TERM HUP
           return
@@ -407,7 +407,7 @@ emulator_main() {
         mkdir -p "$control"
         chmod 700 "$control"
         printf '%s\n' "$$" > "$control/pid"
-        printf 'API=%q\nREPO=%q\nTOKEN=%q\n' "$API" "$REPO" "$TOKEN" > "$control/health.env.tmp"
+        printf 'GITHUB_API_URL=%q\nREPO=%q\nTOKEN=%q\n' "$GITHUB_API_URL" "$REPO" "$TOKEN" > "$control/health.env.tmp"
         chmod 600 "$control/health.env.tmp"
         mv "$control/health.env.tmp" "$control/health.env"
         printf '%s success\n' "$serial" > "$control/status.tmp"
