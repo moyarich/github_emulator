@@ -1,0 +1,22 @@
+# Optional remote log forwarding. Use with compose.yaml.
+# Example: SYSLOG_ADDRESS=tcp+tls://logs.example.com:6514
+#   docker compose -f compose.yaml -f compose.logging.yaml up -d
+#
+# The destination must be reachable by the Docker daemon (not just containers).
+# Docker's syslog driver forwards stdout/stderr; it does not expose the Docker API.
+x-remote-logging: &remote-logging
+  driver: syslog
+  options:
+    syslog-address: "${SYSLOG_ADDRESS:?Set SYSLOG_ADDRESS to your remote syslog collector, e.g. tcp+tls://logs.example.com:6514}"
+    syslog-format: rfc5424
+    tag: "github_emulator/{{.Name}}"
+
+services:
+  github-emulator:
+    logging: *remote-logging
+
+  github-proxy:
+    logging: *remote-logging
+
+  smoke-test:
+    logging: *remote-logging
