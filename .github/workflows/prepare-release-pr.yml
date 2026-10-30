@@ -28,6 +28,11 @@ on:
         description: Exact version for exact mode
         type: string
         default: ""
+      target-branch:
+        description: Branch to receive the release preparation PR
+        type: string
+        required: true
+        default: main
       dry-run:
         description: Preview without opening a PR
         type: boolean
@@ -49,7 +54,7 @@ jobs:
       initial-version: ${{ inputs.initial-version }}
       version-bump: ${{ inputs.version-bump }}
       exact-version: ${{ inputs.exact-version }}
-      target-branch: main
+      target-branch: ${{ inputs.target-branch }}
       dry-run: ${{ inputs.dry-run }}
     secrets:
       workflow-token: ${{ secrets._WORKFLOW_TOKEN }}

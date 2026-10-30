@@ -75,6 +75,7 @@ jobs:
     name: Discover publishable packages
     permissions:
       contents: read
+      packages: read
     uses: moyarich/reusable-workflows/.github/workflows/reusable_discover-packages.yml@main
     with:
       packages-directory: packages
