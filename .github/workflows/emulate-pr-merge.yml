@@ -131,7 +131,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:4001/repos/$REPO/releases" > "$RUNNER_TEMP/mock-releases.json"
-          jq -e 'all(.[]; .draft == true)' "$RUNNER_TEMP/mock-releases.json"
+          jq -e 'length > 0 and all(.[]; .draft == true)' "$RUNNER_TEMP/mock-releases.json"
           {
             echo "## Emulated PR $REPO#$PR_NUMBER"
             echo "No real PR merge or publish occurred."
