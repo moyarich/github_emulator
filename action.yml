@@ -31,9 +31,3 @@ outputs:
     description: Emulated owner/repository
   container-id:
     description: Emulator container ID; automatically removed by the post step
-
-runs:
-  using: node24
-  main: dist/github-emulator/main.js
-  post: dist/github-emulator/post.js
-  post-if: always()
