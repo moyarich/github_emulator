@@ -2,6 +2,18 @@
 
 Official documentation: [GitHub emulator guide](https://emulate.dev/docs/github).
 
+## Emulate the merge flow of an existing pull request
+
+Run **Actions → Emulate PR merge flow → Run workflow** in this repository. Supply:
+
+- **repository:** `moyarich/console`
+- **pr-number:** `225`
+- **workflow:** `.github/workflows/release-approved-pr.yml`
+
+The workflow reads the source PR and checks out its exact head commit, then imports the source into a disposable mock GitHub API, performs the mock PR merge through the emulator's event dispatcher, which automatically discovers matching workflows and invokes `act`. Its output includes a GitHub Actions summary, mock GitHub Releases, and service-log artifacts. It fails if no mock release drafts are produced or if any observed mock releases are not drafts. Release preparation additionally requires mocked successful CI workflow runs, so a missing CI fixture can intentionally fail verification.
+
+This is a **simulation**: it never merges the source PR or writes to the real repository. It passes only local test credentials to the emulated workflow and does not provide an npm publishing token. The workflow currently supports same-repository `release/prepare-*` pull requests targeting `main`, such as Console #225; forked PRs are rejected. It depends on the source workflow being compatible with the emulator's GitHub API surface.
+
 ## Start the server
 
 From the project root:

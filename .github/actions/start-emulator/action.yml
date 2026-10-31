@@ -1,0 +1,39 @@
+name: MoyaRich GitHub Emulator
+author: moyarich
+description: Start a seeded local GitHub API for testing workflows, with automatic cleanup.
+branding:
+  icon: server
+  color: blue
+
+inputs:
+  repository:
+    description: Repository to seed locally; does not access or modify the real repository
+    default: ${{ github.repository }}
+  token:
+    description: Local emulator token; use a test value, not a real GitHub token
+    default: local-test-token
+  seed-file:
+    description: Optional seed YAML/JSON file, relative to the caller workspace; must seed the selected repository and token
+    default: ""
+  base-branch:
+    description: Seeded base branch when using the default seed
+    default: main
+  export-env:
+    description: Export GH_EMULATOR_API_URL and GH_EMULATOR_TOKEN for later steps; client base URLs still require configuration
+    default: "true"
+
+outputs:
+  api-url:
+    description: HTTP API URL reachable by later steps in the same job
+  token:
+    description: Local emulator token for client authentication
+  repository:
+    description: Emulated owner/repository
+  container-id:
+    description: Emulator container ID; automatically removed by the post step
+
+runs:
+  using: node24
+  main: ../../../dist/github-emulator/main.js
+  post: ../../../dist/github-emulator/post.js
+  post-if: always()

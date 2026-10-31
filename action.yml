@@ -18,6 +18,15 @@ inputs:
   base-branch:
     description: Seeded base branch when using the default seed
     default: main
+  pr-number:
+    description: Pull request number to emulate without merging the real PR
+    required: false
+  workflow:
+    description: Workflow path to validate in the source PR
+    default: .github/workflows/release-approved-pr.yml
+  github-token:
+    description: GitHub token with read access to the source repository and PR
+    required: false
   export-env:
     description: Export GH_EMULATOR_API_URL and GH_EMULATOR_TOKEN for later steps; client base URLs still require configuration
     default: "true"
@@ -25,15 +34,214 @@ inputs:
 outputs:
   api-url:
     description: HTTP API URL reachable by later steps in the same job
+    value: ${{ steps.standard.outputs.api-url }}
   token:
     description: Local emulator token for client authentication
+    value: ${{ steps.standard.outputs.token }}
   repository:
     description: Emulated owner/repository
+    value: ${{ steps.standard.outputs.repository }}
   container-id:
     description: Emulator container ID; automatically removed by the post step
+    value: ${{ steps.standard.outputs.container-id }}
 
 runs:
-  using: node24
-  main: dist/github-emulator/main.js
-  post: dist/github-emulator/post.js
-  post-if: always()
+  using: composite
+  steps:
+    - name: Start standard GitHub emulator
+      id: standard
+      if: inputs.pr-number == ''
+      uses: ./.github/actions/start-emulator
+      with:
+        repository: ${{ inputs.repository }}
+        token: ${{ inputs.token }}
+        seed-file: ${{ inputs.seed-file }}
+        base-branch: ${{ inputs.base-branch }}
+        export-env: ${{ inputs.export-env }}
+    - name: Initialize merge-emulation inputs
+      if: inputs.pr-number != ''
+      shell: bash
+      env:
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_PR_NUMBER: ${{ inputs.pr-number }}
+        INPUT_WORKFLOW: ${{ inputs.workflow }}
+        INPUT_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        {
+          echo "REPO=$INPUT_REPOSITORY"
+          echo "PR_NUMBER=$INPUT_PR_NUMBER"
+          echo "TARGET_WORKFLOW=$INPUT_WORKFLOW"
+          echo "TOKEN=$INPUT_TOKEN"
+          echo "COMPOSE_PROJECT_NAME=pr-merge-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo 'EMULATOR_PORT=0'
+          echo 'HTTPS_PORT=0'
+        } >> "$GITHUB_ENV"
+    - name: Import selected PR without merging it
+      if: inputs.pr-number != ''
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        [[ -n "$GH_TOKEN" ]] || { echo "github-token is required when pr-number is supplied" >&2; exit 2; }
+        [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+        [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+        [[ "$TARGET_WORKFLOW" =~ ^\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$ ]]
+        gh api "repos/$REPO/pulls/$PR_NUMBER" > "$RUNNER_TEMP/real-pr.json"
+        jq -e --arg repo "$REPO" --arg base "${{ inputs.base-branch }}" '
+          .base.repo.full_name == $repo and .head.repo.full_name == $repo
+          and .base.ref == $base and (.head.ref | startswith("release/prepare-"))
+        ' "$RUNNER_TEMP/real-pr.json"
+        git clone --no-checkout "https://github.com/$REPO.git" "$RUNNER_TEMP/source"
+        git -C "$RUNNER_TEMP/source" fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
+        git -C "$RUNNER_TEMP/source" checkout --detach FETCH_HEAD
+        jq -e --arg sha "$(git -C "$RUNNER_TEMP/source" rev-parse HEAD)" '.head.sha == $sha' "$RUNNER_TEMP/real-pr.json"
+        test -f "$RUNNER_TEMP/source/$TARGET_WORKFLOW"
+        {
+          echo "DISPATCH_WORKSPACE=$RUNNER_TEMP/source"
+          echo "SOURCE_SHA=$(git -C "$RUNNER_TEMP/source" rev-parse HEAD)"
+          echo "SOURCE_REF=refs/heads/$(jq -r '.head.ref' "$RUNNER_TEMP/real-pr.json")"
+          echo "BASE_BRANCH=$(jq -r '.base.ref' "$RUNNER_TEMP/real-pr.json")"
+          echo "SOURCE_EVENT_FILE=$RUNNER_TEMP/source-event.json"
+          echo "MOCK_SNAPSHOT_FILE=$RUNNER_TEMP/mock-snapshot.json"
+          echo "MOCK_EVENT_FILE=$RUNNER_TEMP/mock-event.json"
+        } >> "$GITHUB_ENV"
+        jq '{action:"opened",number:.number,pull_request:(. + {merged:false,state:"open"}),repository:.base.repo}' "$RUNNER_TEMP/real-pr.json" > "$RUNNER_TEMP/source-event.json"
+    - name: Build sandbox and install act
+      if: inputs.pr-number != ''
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker build -f dist/github-emulator/docker/Dockerfile --target mock-github -t "github-emulator-test:$COMPOSE_PROJECT_NAME" dist/github-emulator
+        docker compose -f dist/github-emulator/compose.yaml build github-proxy
+        mkdir -p "$RUNNER_TEMP/act"
+        gh release download v0.2.89 --repo nektos/act --pattern act_Linux_x86_64.tar.gz --dir "$RUNNER_TEMP/act"
+        tar xzf "$RUNNER_TEMP/act/act_Linux_x86_64.tar.gz" -C "$RUNNER_TEMP/act" act
+        echo "$RUNNER_TEMP/act" >> "$GITHUB_PATH"
+        git clone --depth 1 https://github.com/moyarich/reusable-workflows.git "$RUNNER_TEMP/mock-reusable-workflows"
+    - name: Start isolated mock GitHub and event dispatcher
+      if: inputs.pr-number != ''
+      shell: bash
+      run: |
+        cat > "$RUNNER_TEMP/mock-service.yaml" <<'YAML'
+        services:
+          github-emulator:
+            image: github-emulator-test:${COMPOSE_PROJECT_NAME}
+            volumes:
+              - ${DISPATCH_WORKSPACE}:${DISPATCH_WORKSPACE}:ro
+              - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
+              - ${RUNNER_TEMP}:${RUNNER_TEMP}
+            environment:
+              BOOTSTRAP_REPOSITORY: "0"
+              GIT_CONFIG_COUNT: "1"
+              GIT_CONFIG_KEY_0: safe.directory
+              GIT_CONFIG_VALUE_0: ${DISPATCH_WORKSPACE}
+          github-dispatcher:
+            image: github-emulator-test:${COMPOSE_PROJECT_NAME}
+            volumes:
+              - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
+              - ${RUNNER_TEMP}/mock-reusable-workflows:/dependencies/reusable-workflows:ro
+            environment:
+              DISPATCH_LOCAL_REPOSITORIES: '["moyarich/reusable-workflows@main=/dependencies/reusable-workflows"]'
+              DISPATCH_IMAGE: github-emulator-test:${COMPOSE_PROJECT_NAME}
+              DISPATCH_WORKSPACE: ${DISPATCH_WORKSPACE}
+              DISPATCH_WORKFLOWS: .github/workflows
+        YAML
+        echo "COMPOSE_FILE=$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml" >> "$GITHUB_ENV"
+        docker compose up --detach --wait --no-build
+    - name: Prepare emulated merged PR
+      if: inputs.pr-number != ''
+      env:
+        SELECTED_EVENT: pull_request
+        MOCK_API_URL: http://127.0.0.1:4001
+      shell: bash
+      run: |
+        set -euo pipefail
+        for phase in repository event; do
+          docker compose exec -T --workdir "$DISPATCH_WORKSPACE" \
+            --env GITHUB_WORKSPACE="$DISPATCH_WORKSPACE" \
+            --env REPO --env TOKEN --env BASE_BRANCH --env SOURCE_SHA \
+            --env SOURCE_REF --env SOURCE_EVENT_FILE --env MOCK_SNAPSHOT_FILE \
+            --env MOCK_EVENT_FILE --env SELECTED_EVENT --env MOCK_API_URL \
+            --env PREPARE_PHASE="$phase" github-emulator \
+            node /emulator-checkout/dist/github-emulator/prepare-workflow.js
+        done
+        jq -e '.pull_request.merged == false' "$MOCK_EVENT_FILE"
+    - name: Trigger merge event through mock GitHub gateway
+      if: inputs.pr-number != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker compose exec -T github-dispatcher node --input-type=module <<'JAVASCRIPT'
+        const { REPO, TOKEN } = process.env;
+        const base = 'http://github-emulator:4001';
+        const gateway = 'http://127.0.0.1:4002';
+        const headers = { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' };
+        const fetchJson = async (url, options = {}) => {
+          const response = await fetch(url, { ...options, headers });
+          if (!response.ok) throw Error(`${response.status} ${url}: ${await response.text()}`);
+          return response.json();
+        };
+        const prs = await fetchJson(`${base}/repos/${REPO}/pulls`);
+        const pr = prs.at(-1);
+        if (!pr) throw Error('Mock PR was not seeded');
+        await fetchJson(`${gateway}/repos/${REPO}/pulls/${pr.number}/merge`, {
+          method: 'PUT', body: JSON.stringify({ merge_method: 'merge' }),
+        });
+        JAVASCRIPT
+    - name: Await automatically dispatched workflows
+      if: inputs.pr-number != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        docker compose exec -T github-dispatcher node --input-type=module <<'JAVASCRIPT'
+        const deadline = Date.now() + 15 * 60_000;
+        while (Date.now() < deadline) {
+          const response = await fetch('http://127.0.0.1:4002/_dispatcher/status', {
+            headers: { Authorization: `Bearer ${process.env.TOKEN}` },
+          });
+          if (!response.ok) throw Error(`Dispatcher returned ${response.status}`);
+          const status = await response.json();
+          if (status.accepted && status.pending === 0) {
+            console.log(JSON.stringify(status));
+            if (status.failed || !status.workflows) throw Error('Dispatched workflows failed or none matched');
+            process.exit(0);
+          }
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        throw Error('Timed out awaiting dispatched workflows');
+        JAVASCRIPT
+    - name: Verify draft-only releases
+      if: inputs.pr-number != '' && success()
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl -fsS -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:4001/repos/$REPO/releases" > "$RUNNER_TEMP/mock-releases.json"
+        jq -e 'length > 0 and all(.[]; .draft == true)' "$RUNNER_TEMP/mock-releases.json"
+        {
+          echo "## Emulated PR $REPO#$PR_NUMBER"
+          echo "No real PR merge or publish occurred."
+          jq -r '.[] | "- " + .tag_name + " (draft)"' "$RUNNER_TEMP/mock-releases.json"
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Capture diagnostics
+      if: inputs.pr-number != '' && always()
+      shell: bash
+      run: docker compose logs --no-color > "$RUNNER_TEMP/pr-merge.log" || true
+    - name: Upload diagnostics
+      if: inputs.pr-number != '' && always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: emulated-pr-merge
+        path: |
+          ${{ runner.temp }}/pr-merge.log
+          ${{ runner.temp }}/mock-releases.json
+        if-no-files-found: ignore
+    - name: Clean up
+      if: inputs.pr-number != '' && always()
+      shell: bash
+      run: |
+        docker compose down --volumes --remove-orphans || true
+        rm -rf "$RUNNER_TEMP/mock-reusable-workflows"
