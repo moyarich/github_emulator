@@ -1,0 +1,153 @@
+name: Emulate PR merge flow
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Source owner/repo
+        required: true
+        default: moyarich/console
+        type: string
+      pr-number:
+        description: Pull request number
+        required: true
+        default: "225"
+        type: string
+      workflow:
+        description: Workflow to replay after mock merge
+        required: true
+        default: .github/workflows/release-approved-pr.yml
+        type: string
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  emulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      REPO: ${{ inputs.repository }}
+      PR_NUMBER: ${{ inputs.pr-number }}
+      TARGET_WORKFLOW: ${{ inputs.workflow }}
+      TOKEN: local-pr-merge-token
+      COMPOSE_PROJECT_NAME: pr-merge-${{ github.run_id }}-${{ github.run_attempt }}
+      EMULATOR_PORT: "0"
+      HTTPS_PORT: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Import selected PR without merging it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$TARGET_WORKFLOW" =~ ^\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$ ]]
+          gh api "repos/$REPO/pulls/$PR_NUMBER" > "$RUNNER_TEMP/real-pr.json"
+          jq -e --arg repo "$REPO" '
+            .base.repo.full_name == $repo and .head.repo.full_name == $repo
+            and .base.ref == "main" and (.head.ref | startswith("release/prepare-"))
+          ' "$RUNNER_TEMP/real-pr.json"
+          git clone --no-checkout "https://github.com/$REPO.git" "$RUNNER_TEMP/source"
+          git -C "$RUNNER_TEMP/source" fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
+          git -C "$RUNNER_TEMP/source" checkout --detach FETCH_HEAD
+          jq -e --arg sha "$(git -C "$RUNNER_TEMP/source" rev-parse HEAD)" '.head.sha == $sha' "$RUNNER_TEMP/real-pr.json"
+          test -f "$RUNNER_TEMP/source/$TARGET_WORKFLOW"
+          {
+            echo "DISPATCH_WORKSPACE=$RUNNER_TEMP/source"
+            echo "SOURCE_SHA=$(git -C "$RUNNER_TEMP/source" rev-parse HEAD)"
+            echo "SOURCE_REF=refs/heads/$(jq -r '.head.ref' "$RUNNER_TEMP/real-pr.json")"
+            echo "BASE_BRANCH=$(jq -r '.base.ref' "$RUNNER_TEMP/real-pr.json")"
+            echo "SOURCE_EVENT_FILE=$RUNNER_TEMP/source-event.json"
+            echo "MOCK_SNAPSHOT_FILE=$RUNNER_TEMP/mock-snapshot.json"
+            echo "MOCK_EVENT_FILE=$RUNNER_TEMP/mock-event.json"
+          } >> "$GITHUB_ENV"
+          jq '{action:"closed",number:.number,pull_request:(. + {merged:true,state:"closed"}),repository:.base.repo}' "$RUNNER_TEMP/real-pr.json" > "$RUNNER_TEMP/source-event.json"
+      - name: Build sandbox and install act
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          docker build -f dist/github-emulator/docker/Dockerfile --target mock-github -t "github-emulator-test:$COMPOSE_PROJECT_NAME" dist/github-emulator
+          docker compose -f dist/github-emulator/compose.yaml build github-proxy
+          mkdir -p "$RUNNER_TEMP/act"
+          gh release download v0.2.89 --repo nektos/act --pattern act_Linux_x86_64.tar.gz --dir "$RUNNER_TEMP/act"
+          tar xzf "$RUNNER_TEMP/act/act_Linux_x86_64.tar.gz" -C "$RUNNER_TEMP/act" act
+          echo "$RUNNER_TEMP/act" >> "$GITHUB_PATH"
+      - name: Start isolated mock GitHub API
+        run: |
+          cat > "$RUNNER_TEMP/mock-service.yaml" <<'YAML'
+          services:
+            github-emulator:
+              image: github-emulator-test:${COMPOSE_PROJECT_NAME}
+              volumes:
+                - ${DISPATCH_WORKSPACE}:${DISPATCH_WORKSPACE}:ro
+                - ${RUNNER_TEMP}:${RUNNER_TEMP}
+              environment:
+                BOOTSTRAP_REPOSITORY: "0"
+                GIT_CONFIG_COUNT: "1"
+                GIT_CONFIG_KEY_0: safe.directory
+                GIT_CONFIG_VALUE_0: ${DISPATCH_WORKSPACE}
+          YAML
+          echo "COMPOSE_FILE=$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$RUNNER_TEMP/mock-service.yaml" >> "$GITHUB_ENV"
+          docker compose -f dist/github-emulator/compose.yaml -f "$RUNNER_TEMP/mock-service.yaml" up --detach --wait --no-build
+      - name: Prepare emulated merged PR
+        env:
+          SELECTED_EVENT: pull_request
+          MOCK_API_URL: http://127.0.0.1:4001
+        run: |
+          set -euo pipefail
+          for phase in repository event; do
+            docker compose exec -T --workdir "$DISPATCH_WORKSPACE" \
+              --env GITHUB_WORKSPACE="$DISPATCH_WORKSPACE" \
+              --env REPO --env TOKEN --env BASE_BRANCH --env SOURCE_SHA \
+              --env SOURCE_REF --env SOURCE_EVENT_FILE --env MOCK_SNAPSHOT_FILE \
+              --env MOCK_EVENT_FILE --env SELECTED_EVENT --env MOCK_API_URL \
+              --env PREPARE_PHASE="$phase" github-emulator \
+              node "$GITHUB_WORKSPACE/dist/github-emulator/prepare-workflow.js"
+          done
+          jq -e '.action == "closed" and .pull_request.merged == true' "$MOCK_EVENT_FILE"
+      - name: Replay workflow against mock (no real tokens)
+        run: |
+          set -euo pipefail
+          cd "$DISPATCH_WORKSPACE"
+          env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN act pull_request \
+            --workflows "$TARGET_WORKFLOW" --eventpath "$MOCK_EVENT_FILE" \
+            --github-instance github.emulator.test \
+            --replace-ghe-action-with-github-com '*' \
+            --network "${COMPOSE_PROJECT_NAME}_default" \
+            --container-options "--volume ${COMPOSE_PROJECT_NAME}_proxy-data:/emulator-proxy-data:ro" \
+            --env SSL_CERT_FILE=/emulator-proxy-data/caddy/pki/authorities/local/root.crt \
+            --env NODE_EXTRA_CA_CERTS=/emulator-proxy-data/caddy/pki/authorities/local/root.crt \
+            --env GH_HOST=github.emulator.test \
+            --env GH_TOKEN="$TOKEN" --env GH_ENTERPRISE_TOKEN="$TOKEN" \
+            --secret GITHUB_TOKEN="$TOKEN" --secret _NPM_TOKEN= \
+            --secret-file /dev/null --env-file /dev/null --var-file /dev/null \
+            --platform "ubuntu-latest=github-emulator-test:$COMPOSE_PROJECT_NAME" --pull=false
+      - name: Verify draft-only releases
+        if: success()
+        run: |
+          set -euo pipefail
+          curl -fsS -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:4001/repos/$REPO/releases" > "$RUNNER_TEMP/mock-releases.json"
+          jq -e 'all(.[]; .draft == true)' "$RUNNER_TEMP/mock-releases.json"
+          {
+            echo "## Emulated PR $REPO#$PR_NUMBER"
+            echo "No real PR merge or publish occurred."
+            jq -r '.[] | "- " + .tag_name + " (draft)"' "$RUNNER_TEMP/mock-releases.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Capture diagnostics
+        if: always()
+        run: docker compose logs --no-color > "$RUNNER_TEMP/pr-merge.log" || true
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulated-pr-merge
+          path: |
+            ${{ runner.temp }}/pr-merge.log
+            ${{ runner.temp }}/mock-releases.json
+          if-no-files-found: ignore
+      - name: Clean up
+        if: always()
+        run: docker compose down --volumes --remove-orphans || true
