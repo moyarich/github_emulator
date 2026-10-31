@@ -20,13 +20,13 @@ inputs:
     default: main
   pr-number:
     description: Pull request number to emulate without merging the real PR
-    required: true
+    required: false
   workflow:
     description: Workflow path to validate in the source PR
     default: .github/workflows/release-approved-pr.yml
   github-token:
     description: GitHub token with read access to the source repository and PR
-    required: true
+    required: false
   export-env:
     description: Export GH_EMULATOR_API_URL and GH_EMULATOR_TOKEN for later steps; client base URLs still require configuration
     default: "true"
@@ -34,17 +34,32 @@ inputs:
 outputs:
   api-url:
     description: HTTP API URL reachable by later steps in the same job
+    value: ${{ steps.standard.outputs.api-url }}
   token:
     description: Local emulator token for client authentication
+    value: ${{ steps.standard.outputs.token }}
   repository:
     description: Emulated owner/repository
+    value: ${{ steps.standard.outputs.repository }}
   container-id:
     description: Emulator container ID; automatically removed by the post step
+    value: ${{ steps.standard.outputs.container-id }}
 
 runs:
   using: composite
   steps:
+    - name: Start standard GitHub emulator
+      id: standard
+      if: inputs.pr-number == ''
+      uses: ./.github/actions/start-emulator
+      with:
+        repository: ${{ inputs.repository }}
+        token: ${{ inputs.token }}
+        seed-file: ${{ inputs.seed-file }}
+        base-branch: ${{ inputs.base-branch }}
+        export-env: ${{ inputs.export-env }}
     - name: Initialize merge-emulation inputs
+      if: inputs.pr-number != ''
       shell: bash
       env:
         INPUT_REPOSITORY: ${{ inputs.repository }}
@@ -63,6 +78,7 @@ runs:
           echo 'HTTPS_PORT=0'
         } >> "$GITHUB_ENV"
     - name: Import selected PR without merging it
+      if: inputs.pr-number != ''
       env:
         GH_TOKEN: ${{ inputs.github-token }}
       shell: bash
@@ -92,6 +108,7 @@ runs:
         } >> "$GITHUB_ENV"
         jq '{action:"opened",number:.number,pull_request:(. + {merged:false,state:"open"}),repository:.base.repo}' "$RUNNER_TEMP/real-pr.json" > "$RUNNER_TEMP/source-event.json"
     - name: Build sandbox and install act
+      if: inputs.pr-number != ''
       env:
         GH_TOKEN: ${{ inputs.github-token }}
       shell: bash
@@ -105,6 +122,7 @@ runs:
         echo "$RUNNER_TEMP/act" >> "$GITHUB_PATH"
         git clone --depth 1 https://github.com/moyarich/reusable-workflows.git "$RUNNER_TEMP/mock-reusable-workflows"
     - name: Start isolated mock GitHub and event dispatcher
+      if: inputs.pr-number != ''
       shell: bash
       run: |
         cat > "$RUNNER_TEMP/mock-service.yaml" <<'YAML'
@@ -134,6 +152,7 @@ runs:
         echo "COMPOSE_FILE=$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml" >> "$GITHUB_ENV"
         docker compose up --detach --wait --no-build
     - name: Prepare emulated merged PR
+      if: inputs.pr-number != ''
       env:
         SELECTED_EVENT: pull_request
         MOCK_API_URL: http://127.0.0.1:4001
@@ -151,6 +170,7 @@ runs:
         done
         jq -e '.pull_request.merged == false' "$MOCK_EVENT_FILE"
     - name: Trigger merge event through mock GitHub gateway
+      if: inputs.pr-number != ''
       shell: bash
       run: |
         set -euo pipefail
@@ -172,6 +192,7 @@ runs:
         });
         JAVASCRIPT
     - name: Await automatically dispatched workflows
+      if: inputs.pr-number != ''
       shell: bash
       run: |
         set -euo pipefail
