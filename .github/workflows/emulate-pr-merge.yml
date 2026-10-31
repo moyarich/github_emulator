@@ -63,7 +63,7 @@ jobs:
             echo "MOCK_SNAPSHOT_FILE=$RUNNER_TEMP/mock-snapshot.json"
             echo "MOCK_EVENT_FILE=$RUNNER_TEMP/mock-event.json"
           } >> "$GITHUB_ENV"
-          jq '{action:"closed",number:.number,pull_request:(. + {merged:true,state:"closed"}),repository:.base.repo}' "$RUNNER_TEMP/real-pr.json" > "$RUNNER_TEMP/source-event.json"
+          jq '{action:"opened",number:.number,pull_request:(. + {merged:false,state:"open"}),repository:.base.repo}' "$RUNNER_TEMP/real-pr.json" > "$RUNNER_TEMP/source-event.json"
       - name: Build sandbox and install act
         env:
           GH_TOKEN: ${{ github.token }}
@@ -100,7 +100,7 @@ jobs:
                 DISPATCH_WORKFLOWS: .github/workflows
           YAML
           echo "COMPOSE_FILE=$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml" >> "$GITHUB_ENV"
-          docker compose -f dist/github-emulator/compose.yaml -f "$RUNNER_TEMP/mock-service.yaml" up --detach --wait --no-build
+          docker compose up --detach --wait --no-build
       - name: Prepare emulated merged PR
         env:
           SELECTED_EVENT: pull_request
@@ -116,7 +116,7 @@ jobs:
               --env PREPARE_PHASE="$phase" github-emulator \
               node /emulator-checkout/dist/github-emulator/prepare-workflow.js
           done
-          jq -e '.action == "closed" and .pull_request.merged == true' "$MOCK_EVENT_FILE"
+          jq -e '.pull_request.merged == false' "$MOCK_EVENT_FILE"
       - name: Trigger merge event through mock GitHub gateway
         run: |
           set -euo pipefail
@@ -157,24 +157,6 @@ jobs:
           }
           throw Error('Timed out awaiting dispatched workflows');
           JAVASCRIPT
-      - name: Disabled direct replay reference
-        if: false
-        run: |
-          set -euo pipefail
-          cd "$DISPATCH_WORKSPACE"
-          env -u GH_TOKEN -u GITHUB_TOKEN -u GH_ENTERPRISE_TOKEN act pull_request \
-            --workflows "$TARGET_WORKFLOW" --eventpath "$MOCK_EVENT_FILE" \
-            --github-instance github.emulator.test \
-            --replace-ghe-action-with-github-com '*' \
-            --network "${COMPOSE_PROJECT_NAME}_default" \
-            --container-options "--volume ${COMPOSE_PROJECT_NAME}_proxy-data:/emulator-proxy-data:ro" \
-            --env SSL_CERT_FILE=/emulator-proxy-data/caddy/pki/authorities/local/root.crt \
-            --env NODE_EXTRA_CA_CERTS=/emulator-proxy-data/caddy/pki/authorities/local/root.crt \
-            --env GH_HOST=github.emulator.test \
-            --env GH_TOKEN="$TOKEN" --env GH_ENTERPRISE_TOKEN="$TOKEN" \
-            --secret GITHUB_TOKEN="$TOKEN" --secret _NPM_TOKEN= \
-            --secret-file /dev/null --env-file /dev/null --var-file /dev/null \
-            --platform "ubuntu-latest=github-emulator-test:$COMPOSE_PROJECT_NAME" --pull=false
       - name: Verify draft-only releases
         if: success()
         run: |
