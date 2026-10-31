@@ -2,13 +2,11 @@ name: CI / Actionlint
 on:
   push:
     branches: [main]
-    paths:
+    paths: &actionlint_paths
       - ".github/workflows/**"
       - ".github/actionlint.yaml"
   pull_request:
-    paths:
-      - ".github/workflows/**"
-      - ".github/actionlint.yaml"
+    paths: *actionlint_paths
   workflow_call:
   workflow_dispatch:
 concurrency:

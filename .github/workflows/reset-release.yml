@@ -13,7 +13,7 @@ on:
         default: all
         options:
           - all
-          - packages/emulate-github
+          - packages/example
       target-branch:
         description: Release target branch
         required: true

@@ -8,12 +8,31 @@ on:
         type: string
         required: true
         default: all
-      version-bump:
-        description: Version bump
+      version-mode:
+        description: Version calculation mode
         type: choice
-        options: [package-json, patch, minor, major]
+        options: [auto, bump, package-json, exact]
         required: true
-        default: package-json
+        default: auto
+      initial-version:
+        description: First release version in auto mode
+        type: string
+        default: "0.1.0"
+      version-bump:
+        description: SemVer increment for bump mode
+        type: choice
+        options: [patch, minor, major, prepatch, preminor, premajor, prerelease]
+        required: true
+        default: patch
+      exact-version:
+        description: Exact version for exact mode
+        type: string
+        default: ""
+      target-branch:
+        description: Branch to receive the release preparation PR
+        type: string
+        required: true
+        default: main
       dry-run:
         description: Preview without opening a PR
         type: boolean
@@ -31,8 +50,11 @@ jobs:
     uses: moyarich/reusable-workflows/.github/workflows/reusable_prepare-release-pr.yml@main
     with:
       package: ${{ inputs.package }}
+      version-mode: ${{ inputs.version-mode }}
+      initial-version: ${{ inputs.initial-version }}
       version-bump: ${{ inputs.version-bump }}
-      target-branch: main
+      exact-version: ${{ inputs.exact-version }}
+      target-branch: ${{ inputs.target-branch }}
       dry-run: ${{ inputs.dry-run }}
     secrets:
       workflow-token: ${{ secrets._WORKFLOW_TOKEN }}
