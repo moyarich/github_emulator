@@ -83,6 +83,7 @@ jobs:
               image: github-emulator-test:${COMPOSE_PROJECT_NAME}
               volumes:
                 - ${DISPATCH_WORKSPACE}:${DISPATCH_WORKSPACE}:ro
+                - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
                 - ${RUNNER_TEMP}:${RUNNER_TEMP}
               environment:
                 BOOTSTRAP_REPOSITORY: "0"
@@ -105,7 +106,7 @@ jobs:
               --env SOURCE_REF --env SOURCE_EVENT_FILE --env MOCK_SNAPSHOT_FILE \
               --env MOCK_EVENT_FILE --env SELECTED_EVENT --env MOCK_API_URL \
               --env PREPARE_PHASE="$phase" github-emulator \
-              node "$GITHUB_WORKSPACE/dist/github-emulator/prepare-workflow.js"
+              node /emulator-checkout/dist/github-emulator/prepare-workflow.js
           done
           jq -e '.action == "closed" and .pull_request.merged == true' "$MOCK_EVENT_FILE"
       - name: Replay workflow against mock (no real tokens)
