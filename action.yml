@@ -84,6 +84,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        [[ -n "$GH_TOKEN" ]] || { echo "github-token is required when pr-number is supplied" >&2; exit 2; }
         [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
         [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
         [[ "$TARGET_WORKFLOW" =~ ^\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$ ]]
@@ -214,7 +215,7 @@ runs:
         throw Error('Timed out awaiting dispatched workflows');
         JAVASCRIPT
     - name: Verify draft-only releases
-      if: success()
+      if: inputs.pr-number != '' && success()
       shell: bash
       run: |
         set -euo pipefail
@@ -226,11 +227,11 @@ runs:
           jq -r '.[] | "- " + .tag_name + " (draft)"' "$RUNNER_TEMP/mock-releases.json"
         } >> "$GITHUB_STEP_SUMMARY"
     - name: Capture diagnostics
-      if: always()
+      if: inputs.pr-number != '' && always()
       shell: bash
       run: docker compose logs --no-color > "$RUNNER_TEMP/pr-merge.log" || true
     - name: Upload diagnostics
-      if: always()
+      if: inputs.pr-number != '' && always()
       uses: actions/upload-artifact@v4
       with:
         name: emulated-pr-merge
@@ -239,7 +240,7 @@ runs:
           ${{ runner.temp }}/mock-releases.json
         if-no-files-found: ignore
     - name: Clean up
-      if: always()
+      if: inputs.pr-number != '' && always()
       shell: bash
       run: |
         docker compose down --volumes --remove-orphans || true
