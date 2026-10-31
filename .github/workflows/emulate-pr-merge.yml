@@ -75,7 +75,7 @@ jobs:
           gh release download v0.2.89 --repo nektos/act --pattern act_Linux_x86_64.tar.gz --dir "$RUNNER_TEMP/act"
           tar xzf "$RUNNER_TEMP/act/act_Linux_x86_64.tar.gz" -C "$RUNNER_TEMP/act" act
           echo "$RUNNER_TEMP/act" >> "$GITHUB_PATH"
-      - name: Start isolated mock GitHub API
+      - name: Start isolated mock GitHub and event dispatcher
         run: |
           cat > "$RUNNER_TEMP/mock-service.yaml" <<'YAML'
           services:
@@ -90,8 +90,16 @@ jobs:
                 GIT_CONFIG_COUNT: "1"
                 GIT_CONFIG_KEY_0: safe.directory
                 GIT_CONFIG_VALUE_0: ${DISPATCH_WORKSPACE}
+            github-dispatcher:
+              image: github-emulator-test:${COMPOSE_PROJECT_NAME}
+              volumes:
+                - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
+              environment:
+                DISPATCH_IMAGE: github-emulator-test:${COMPOSE_PROJECT_NAME}
+                DISPATCH_WORKSPACE: ${DISPATCH_WORKSPACE}
+                DISPATCH_WORKFLOWS: .github/workflows
           YAML
-          echo "COMPOSE_FILE=$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$RUNNER_TEMP/mock-service.yaml" >> "$GITHUB_ENV"
+          echo "COMPOSE_FILE=$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml" >> "$GITHUB_ENV"
           docker compose -f dist/github-emulator/compose.yaml -f "$RUNNER_TEMP/mock-service.yaml" up --detach --wait --no-build
       - name: Prepare emulated merged PR
         env:
@@ -109,7 +117,48 @@ jobs:
               node /emulator-checkout/dist/github-emulator/prepare-workflow.js
           done
           jq -e '.action == "closed" and .pull_request.merged == true' "$MOCK_EVENT_FILE"
-      - name: Replay workflow against mock (no real tokens)
+      - name: Trigger merge event through mock GitHub gateway
+        run: |
+          set -euo pipefail
+          docker compose exec -T github-dispatcher node --input-type=module <<'JAVASCRIPT'
+          const { REPO, TOKEN } = process.env;
+          const base = 'http://github-emulator:4001';
+          const gateway = 'http://127.0.0.1:4002';
+          const headers = { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' };
+          const fetchJson = async (url, options = {}) => {
+            const response = await fetch(url, { ...options, headers });
+            if (!response.ok) throw Error(`${response.status} ${url}: ${await response.text()}`);
+            return response.json();
+          };
+          const prs = await fetchJson(`${base}/repos/${REPO}/pulls`);
+          const pr = prs.at(-1);
+          if (!pr) throw Error('Mock PR was not seeded');
+          await fetchJson(`${gateway}/repos/${REPO}/pulls/${pr.number}/merge`, {
+            method: 'PUT', body: JSON.stringify({ merge_method: 'merge' }),
+          });
+          JAVASCRIPT
+      - name: Await automatically dispatched workflows
+        run: |
+          set -euo pipefail
+          docker compose exec -T github-dispatcher node --input-type=module <<'JAVASCRIPT'
+          const deadline = Date.now() + 15 * 60_000;
+          while (Date.now() < deadline) {
+            const response = await fetch('http://127.0.0.1:4002/_dispatcher/status', {
+              headers: { Authorization: `Bearer ${process.env.TOKEN}` },
+            });
+            if (!response.ok) throw Error(`Dispatcher returned ${response.status}`);
+            const status = await response.json();
+            if (status.accepted && status.pending === 0) {
+              console.log(JSON.stringify(status));
+              if (status.failed || !status.workflows) throw Error('Dispatched workflows failed or none matched');
+              process.exit(0);
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+          throw Error('Timed out awaiting dispatched workflows');
+          JAVASCRIPT
+      - name: Disabled direct replay reference
+        if: false
         run: |
           set -euo pipefail
           cd "$DISPATCH_WORKSPACE"
