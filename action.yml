@@ -150,7 +150,8 @@ runs:
               DISPATCH_WORKSPACE: ${DISPATCH_WORKSPACE}
               DISPATCH_WORKFLOWS: .github/workflows
         YAML
-        echo "COMPOSE_FILE=$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml" >> "$GITHUB_ENV"
+        export COMPOSE_FILE="$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml"
+        echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$GITHUB_ENV"
         docker compose up --detach --wait --no-build
     - name: Prepare emulated merged PR
       if: inputs.pr-number != ''
