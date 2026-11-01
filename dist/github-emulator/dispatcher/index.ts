@@ -363,7 +363,7 @@ export async function executeWorkflows(
       "--env",
       "GIT_CONFIG_COUNT=2",
       "--env",
-      "GIT_CONFIG_KEY_0=url.file:///home/runner/work/_temp/source.insteadOf",
+      `GIT_CONFIG_KEY_0=url.file://${workspace}.insteadOf`,
       "--env",
       "GIT_CONFIG_VALUE_0=https://github.emulator.test/moyarich/console",
       "--env",
