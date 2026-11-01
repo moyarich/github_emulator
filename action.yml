@@ -231,7 +231,11 @@ runs:
     - name: Capture diagnostics
       if: inputs.pr-number != '' && always()
       shell: bash
-      run: docker compose logs --no-color > "$RUNNER_TEMP/pr-merge.log" || true
+      run: |
+        docker compose logs --no-color > "$RUNNER_TEMP/pr-merge.log" 2>&1 || true
+        echo "::group::Mock GitHub dispatcher diagnostics"
+        docker compose logs --no-color github-dispatcher || true
+        echo "::endgroup::"
     - name: Upload diagnostics
       if: inputs.pr-number != '' && always()
       uses: actions/upload-artifact@v4
