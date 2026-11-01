@@ -147,8 +147,9 @@ runs:
               - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
               - ${RUNNER_TEMP}/mock-reusable-workflows:/dependencies/reusable-workflows:ro
               - ${RUNNER_TEMP}/mock-actions-checkout:/dependencies/actions-checkout:ro
+              - ${DISPATCH_WORKSPACE}:/dependencies/console:ro
             environment:
-              DISPATCH_LOCAL_REPOSITORIES: '["moyarich/reusable-workflows@main=/dependencies/reusable-workflows","actions/checkout@v7=/dependencies/actions-checkout"]'
+              DISPATCH_LOCAL_REPOSITORIES: '["moyarich/reusable-workflows@main=/dependencies/reusable-workflows","actions/checkout@v7=/dependencies/actions-checkout","moyarich/console@main=/dependencies/console"]'
               DISPATCH_IMAGE: github-emulator-test:${COMPOSE_PROJECT_NAME}
               DISPATCH_WORKSPACE: ${DISPATCH_WORKSPACE}
               DISPATCH_WORKFLOWS: .github/workflows
