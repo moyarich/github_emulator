@@ -122,6 +122,18 @@ runs:
         tar xzf "$RUNNER_TEMP/act/act_Linux_x86_64.tar.gz" -C "$RUNNER_TEMP/act" act
         echo "$RUNNER_TEMP/act" >> "$GITHUB_PATH"
         git clone --depth 1 https://github.com/moyarich/reusable-workflows.git "$RUNNER_TEMP/mock-reusable-workflows"
+        # act resolves nested ./ workflow_call references against the simulation workspace,
+        # unlike GitHub Actions, which resolves them from the reusable workflow repository.
+        # Stage only missing reusable workflow definitions in the disposable PR checkout.
+        mkdir -p "$DISPATCH_WORKSPACE/.github/workflows"
+        for definition in "$RUNNER_TEMP"/mock-reusable-workflows/.github/workflows/reusable_*.yml; do
+          [[ -f "$definition" ]] || continue
+          destination="$DISPATCH_WORKSPACE/.github/workflows/${definition##*/}"
+          if [[ ! -e "$destination" ]]; then
+            cp "$definition" "$destination"
+            echo "Staged reusable workflow: ${destination##*/}"
+          fi
+        done
     - name: Start isolated mock GitHub and event dispatcher
       if: inputs.pr-number != ''
       shell: bash
