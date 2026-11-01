@@ -122,6 +122,8 @@ runs:
         tar xzf "$RUNNER_TEMP/act/act_Linux_x86_64.tar.gz" -C "$RUNNER_TEMP/act" act
         echo "$RUNNER_TEMP/act" >> "$GITHUB_PATH"
         git clone --depth 1 https://github.com/moyarich/reusable-workflows.git "$RUNNER_TEMP/mock-reusable-workflows"
+        # Cache Marketplace actions locally so act never fetches them through the mock TLS gateway.
+        git clone --depth 1 --branch v7 https://github.com/actions/checkout.git "$RUNNER_TEMP/mock-actions-checkout"
         # act resolves nested ./ workflow_call references against the simulation workspace,
         # unlike GitHub Actions, which resolves them from the reusable workflow repository.
         # Stage only missing reusable workflow definitions in the disposable PR checkout.
@@ -156,8 +158,9 @@ runs:
             volumes:
               - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
               - ${RUNNER_TEMP}/mock-reusable-workflows:/dependencies/reusable-workflows:ro
+              - ${RUNNER_TEMP}/mock-actions-checkout:/dependencies/actions-checkout:ro
             environment:
-              DISPATCH_LOCAL_REPOSITORIES: '["moyarich/reusable-workflows@main=/dependencies/reusable-workflows"]'
+              DISPATCH_LOCAL_REPOSITORIES: '["moyarich/reusable-workflows@main=/dependencies/reusable-workflows","actions/checkout@v7=/dependencies/actions-checkout"]'
               DISPATCH_IMAGE: github-emulator-test:${COMPOSE_PROJECT_NAME}
               DISPATCH_WORKSPACE: ${DISPATCH_WORKSPACE}
               DISPATCH_WORKFLOWS: .github/workflows
@@ -256,4 +259,4 @@ runs:
       shell: bash
       run: |
         docker compose down --volumes --remove-orphans || true
-        rm -rf "$RUNNER_TEMP/mock-reusable-workflows"
+        rm -rf "$RUNNER_TEMP/mock-reusable-workflows" "$RUNNER_TEMP/mock-actions-checkout"
