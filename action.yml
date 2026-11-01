@@ -142,6 +142,7 @@ runs:
           github-dispatcher:
             image: github-emulator-test:${COMPOSE_PROJECT_NAME}
             volumes:
+              - ${DISPATCH_WORKSPACE}:${DISPATCH_WORKSPACE}:ro
               - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
               - ${RUNNER_TEMP}/mock-reusable-workflows:/dependencies/reusable-workflows:ro
             environment:
