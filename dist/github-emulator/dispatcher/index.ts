@@ -363,7 +363,7 @@ export async function executeWorkflows(
       "--env",
       "GIT_CONFIG_COUNT=2",
       "--env",
-      `GIT_CONFIG_KEY_0=url.file://${workspace}.insteadOf`,
+      "GIT_CONFIG_KEY_0=url.file:///emulator-source.insteadOf",
       "--env",
       "GIT_CONFIG_VALUE_0=https://github.emulator.test/moyarich/console",
       "--env",
@@ -399,7 +399,7 @@ export async function executeWorkflows(
     const volume = process.env.DISPATCH_CA_VOLUME;
     // act job containers do not inherit dispatcher mounts. Expose the seeded Git
     // checkout explicitly so Git URL rewriting can fetch the source commit.
-    args.push("--container-options", `--volume ${workspace}:${workspace}:ro${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}`);
+    args.push("--container-options", `--volume ${workspace}:/emulator-source:ro${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}`);
     if (volume)
       args.push(
         ...["SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO"].flatMap(
