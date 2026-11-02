@@ -121,8 +121,28 @@ runs:
         gh release download v0.2.89 --repo nektos/act --pattern act_Linux_x86_64.tar.gz --dir "$RUNNER_TEMP/act"
         tar xzf "$RUNNER_TEMP/act/act_Linux_x86_64.tar.gz" -C "$RUNNER_TEMP/act" act
         echo "$RUNNER_TEMP/act" >> "$GITHUB_PATH"
-        git clone --depth 1 https://github.com/moyarich/reusable-workflows.git "$RUNNER_TEMP/mock-reusable-workflows"
-        git clone --depth 1 --branch v7 https://github.com/actions/checkout.git "$RUNNER_TEMP/mock-actions-checkout"
+        mkdir -p "$RUNNER_TEMP/emulator-dependencies"
+        python3 - <<'PY'
+        import json, os, pathlib, re, subprocess
+        root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "emulator-dependencies"
+        pending = [pathlib.Path(os.environ["DISPATCH_WORKSPACE"]) / ".github/workflows"]
+        visited, mappings = set(), []
+        pattern = re.compile(r"uses:\\s*([\\w.-]+/[\\w.-]+)/[^@\\s]+@([\\w./-]+)")
+        while pending:
+            folder = pending.pop()
+            if not folder.exists():
+                continue
+            for file in folder.rglob("*.yml"):
+                for name, ref in pattern.findall(file.read_text()):
+                    if (name, ref) in visited:
+                        continue
+                    visited.add((name, ref))
+                    dest = root / str(len(visited))
+                    subprocess.run(["git", "clone", "--depth", "1", "--branch", ref, "https://github.com/" + name + ".git", str(dest)], check=True)
+                    mappings.append(f"{name}@{ref}=/dependencies/{dest.name}")
+                    pending.append(dest / ".github/workflows")
+        (root / "mappings.json").write_text(json.dumps(mappings))
+        PY
     - name: Start isolated mock GitHub and event dispatcher
       if: inputs.pr-number != ''
       shell: bash
@@ -145,13 +165,12 @@ runs:
             volumes:
               - ${DISPATCH_WORKSPACE}:${DISPATCH_WORKSPACE}:ro
               - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
-              - ${RUNNER_TEMP}/mock-reusable-workflows:/dependencies/reusable-workflows:ro
-              - ${RUNNER_TEMP}/mock-actions-checkout:/dependencies/actions-checkout:ro
+              - ${RUNNER_TEMP}/emulator-dependencies:/dependencies:ro
             environment:
-              DISPATCH_LOCAL_REPOSITORIES: '["moyarich/reusable-workflows@main=/dependencies/reusable-workflows","actions/checkout@v7=/dependencies/actions-checkout"]'
+              DISPATCH_LOCAL_REPOSITORIES_FILE: /dependencies/mappings.json
               DISPATCH_IMAGE: github-emulator-test:${COMPOSE_PROJECT_NAME}
               DISPATCH_WORKSPACE: ${DISPATCH_WORKSPACE}
-              DISPATCH_REUSABLE_WORKFLOWS_HOST: ${RUNNER_TEMP}/mock-reusable-workflows
+              DISPATCH_DEPENDENCIES_HOST: ${RUNNER_TEMP}/emulator-dependencies
               DISPATCH_SOURCE_SHA: ${SOURCE_SHA}
               DISPATCH_REPOSITORY: ${REPO}
               DISPATCH_WORKFLOWS: .github/workflows
@@ -256,4 +275,4 @@ runs:
       shell: bash
       run: |
         docker compose down --volumes --remove-orphans || true
-        rm -rf "$RUNNER_TEMP/mock-reusable-workflows" "$RUNNER_TEMP/mock-actions-checkout"
+        rm -rf "$RUNNER_TEMP/emulator-dependencies"
