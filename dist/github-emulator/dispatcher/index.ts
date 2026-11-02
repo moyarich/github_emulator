@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, matchesGlob } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -375,7 +375,9 @@ export async function executeWorkflows(
       process.arch === "arm64" ? "linux/arm64" : "linux/amd64",
     ];
     const repositories: unknown = JSON.parse(
-      process.env.DISPATCH_LOCAL_REPOSITORIES || "[]",
+      process.env.DISPATCH_LOCAL_REPOSITORIES_FILE
+        ? await readFile(process.env.DISPATCH_LOCAL_REPOSITORIES_FILE, "utf8")
+        : process.env.DISPATCH_LOCAL_REPOSITORIES || "[]",
     );
     if (
       !Array.isArray(repositories) ||
