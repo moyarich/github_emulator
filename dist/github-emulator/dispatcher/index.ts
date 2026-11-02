@@ -347,9 +347,7 @@ export async function executeWorkflows(
       "--eventpath",
       file,
       "--github-instance",
-      "github.emulator.test",
-      "--replace-ghe-action-with-github-com",
-      "*",
+      "github.com",
       "--secret",
       `GITHUB_TOKEN=${token}`,
       "--env",
@@ -380,11 +378,13 @@ export async function executeWorkflows(
     args.push("--container-options", `--volume ${workspace}:/emulator-source:ro${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}`);
     const repository = process.env.REPO || process.env.DISPATCH_REPOSITORY;
     if (!repository) throw new Error("Missing target repository");
-    args.push("--env", "GIT_CONFIG_COUNT=2",
+    args.push("--env", "GIT_CONFIG_COUNT=3",
       "--env", "GIT_CONFIG_KEY_0=url.file:///emulator-source.insteadOf",
       "--env", `GIT_CONFIG_VALUE_0=https://github.emulator.test/${repository}`,
-      "--env", "GIT_CONFIG_KEY_1=protocol.file.allow",
-      "--env", "GIT_CONFIG_VALUE_1=always");
+      "--env", "GIT_CONFIG_KEY_1=url.file:///emulator-source.insteadOf",
+      "--env", `GIT_CONFIG_VALUE_1=https://github.com/${repository}`,
+      "--env", "GIT_CONFIG_KEY_2=protocol.file.allow",
+      "--env", "GIT_CONFIG_VALUE_2=always");
     if (volume)
       args.push(
         ...["SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO"].flatMap(
