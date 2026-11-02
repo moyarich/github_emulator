@@ -148,8 +148,8 @@ runs:
                             print(f"Warning: could not resolve {name}@{ref}; leaving it to act: {result.stderr.strip()}")
                             continue
                     mappings.append(f"{name}@{ref}=/dependencies/{dest.name}")
-                    pending.append(dest / ".github/workflows")
-                    pending.append(dest / "actions")
+                    if "/.github/workflows/" in file.as_posix() or file.parent == folder:
+                        pending.append(dest / ".github/workflows")
         (root / "mappings.json").write_text(json.dumps(mappings))
         PY
     - name: Start isolated mock GitHub and event dispatcher
