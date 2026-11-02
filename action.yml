@@ -22,8 +22,8 @@ inputs:
     description: Pull request number to emulate without merging the real PR
     required: false
   workflow:
-    description: Workflow path to validate in the source PR
-    default: .github/workflows/release-approved-pr.yml
+    description: Optional workflow path to validate; when omitted, matching workflows are discovered from the repository
+    default: ""
   github-token:
     description: GitHub token with read access to the source repository and PR
     required: false
@@ -87,7 +87,7 @@ runs:
         [[ -n "$GH_TOKEN" ]] || { echo "github-token is required when pr-number is supplied" >&2; exit 2; }
         [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
         [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
-        [[ "$TARGET_WORKFLOW" =~ ^\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$ ]]
+        [[ -z "$TARGET_WORKFLOW" || "$TARGET_WORKFLOW" =~ ^\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$ ]]
         gh api "repos/$REPO/pulls/$PR_NUMBER" > "$RUNNER_TEMP/real-pr.json"
         jq -e --arg repo "$REPO" --arg base "${{ inputs.base-branch }}" '
           .base.repo.full_name == $repo and .head.repo.full_name == $repo
@@ -97,7 +97,7 @@ runs:
         git -C "$RUNNER_TEMP/source" fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
         git -C "$RUNNER_TEMP/source" checkout --detach FETCH_HEAD
         jq -e --arg sha "$(git -C "$RUNNER_TEMP/source" rev-parse HEAD)" '.head.sha == $sha' "$RUNNER_TEMP/real-pr.json"
-        test -f "$RUNNER_TEMP/source/$TARGET_WORKFLOW"
+        if [[ -n "$TARGET_WORKFLOW" ]]; then test -f "$RUNNER_TEMP/source/$TARGET_WORKFLOW"; fi
         {
           echo "DISPATCH_WORKSPACE=$RUNNER_TEMP/source"
           echo "SOURCE_SHA=$(git -C "$RUNNER_TEMP/source" rev-parse HEAD)"
@@ -250,4 +250,4 @@ runs:
       shell: bash
       run: |
         docker compose down --volumes --remove-orphans || true
-        rm -rf "$RUNNER_TEMP/emulator-dependencies"
+        : # No external dependency cache: act resolves actions and reusable workflows
