@@ -127,7 +127,7 @@ runs:
         root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "emulator-dependencies"
         pending = [pathlib.Path(os.environ["DISPATCH_WORKSPACE"]) / ".github/workflows"]
         visited, mappings = set(), []
-        pattern = re.compile(r"uses:\s*([\w.-]+/[\w.-]+)/[^@\s]+@([\w./-]+)")
+        pattern = re.compile(r"uses:\s*[\x27\x22]?([\w.-]+/[\w.-]+)(?:/[^@\s\x27\x22]+)?@([\w./-]+)")
         while pending:
             folder = pending.pop()
             if not folder.exists():
