@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtemp, writeFile, rm, readFile } from "node:fs/promises";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, matchesGlob } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -374,37 +374,17 @@ export async function executeWorkflows(
       "--container-architecture",
       process.arch === "arm64" ? "linux/arm64" : "linux/amd64",
     ];
-    const repositories: unknown = JSON.parse(
-      process.env.DISPATCH_LOCAL_REPOSITORIES_FILE
-        ? await readFile(process.env.DISPATCH_LOCAL_REPOSITORIES_FILE, "utf8")
-        : process.env.DISPATCH_LOCAL_REPOSITORIES || "[]",
-    );
-    if (
-      !Array.isArray(repositories) ||
-      repositories.some((value) => typeof value !== "string")
-    )
-      throw new Error(
-        "DISPATCH_LOCAL_REPOSITORIES must be a JSON array of act repository mappings",
-      );
-    const mappings = repositories as string[];
-    for (const repository of mappings) args.push("--local-repository", repository);
-    const gitMappings = [
-      { url: `https://github.emulator.test/${process.env.REPO || process.env.DISPATCH_REPOSITORY || ""}`, path: "/emulator-source" },
-      ...mappings.map((mapping) => {
-        const match = /^([^@=]+)@[^=]+=(.+)$/.exec(mapping);
-        if (!match) throw new Error(`Invalid local repository mapping: ${mapping}`);
-        return { url: `https://github.com/${match[1]}`, path: match[2] };
-      }),
-    ];
-    args.push("--env", `GIT_CONFIG_COUNT=${gitMappings.length + 1}`);
-    gitMappings.forEach(({ url, path }, index) => {
-      args.push("--env", `GIT_CONFIG_KEY_${index}=url.file://${path}.insteadOf`);
-      args.push("--env", `GIT_CONFIG_VALUE_${index}=${url}`);
-    });
-    args.push("--env", `GIT_CONFIG_KEY_${gitMappings.length}=protocol.file.allow`, "--env", `GIT_CONFIG_VALUE_${gitMappings.length}=always`);
     const volume = process.env.DISPATCH_CA_VOLUME;
-    const dependencies = process.env.DISPATCH_DEPENDENCIES_HOST;
-    args.push("--container-options", `--volume ${workspace}:/emulator-source:ro${dependencies ? ` --volume ${dependencies}:/dependencies:ro` : ""}${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}`);
+    // act resolves all external actions and reusable workflows itself.
+    // Only the emulated target repository is mounted for checkout.
+    args.push("--container-options", `--volume ${workspace}:/emulator-source:ro${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}`);
+    const repository = process.env.REPO || process.env.DISPATCH_REPOSITORY;
+    if (!repository) throw new Error("Missing target repository");
+    args.push("--env", "GIT_CONFIG_COUNT=2",
+      "--env", "GIT_CONFIG_KEY_0=url.file:///emulator-source.insteadOf",
+      "--env", `GIT_CONFIG_VALUE_0=https://github.emulator.test/${repository}`,
+      "--env", "GIT_CONFIG_KEY_1=protocol.file.allow",
+      "--env", "GIT_CONFIG_VALUE_1=always");
     if (volume)
       args.push(
         ...["SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO"].flatMap(
