@@ -401,9 +401,10 @@ export async function executeWorkflows(
     for (const repository of repositories)
       args.push("--local-repository", repository);
     const volume = process.env.DISPATCH_CA_VOLUME;
+    const reusable = process.env.DISPATCH_REUSABLE_WORKFLOWS_HOST;
     // act job containers do not inherit dispatcher mounts. Expose the seeded Git
     // checkout explicitly so Git URL rewriting can fetch the source commit.
-    args.push("--container-options", `--volume ${workspace}:/emulator-source:ro${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}`);
+    args.push("--container-options", `--volume ${workspace}:/emulator-source:ro${reusable ? ` --volume ${reusable}:/dependencies/reusable-workflows:ro` : ""}${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}`);
     if (volume)
       args.push(
         ...["SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO"].flatMap(
