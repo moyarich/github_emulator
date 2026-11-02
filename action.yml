@@ -132,7 +132,7 @@ runs:
             folder = pending.pop()
             if not folder.exists():
                 continue
-            for file in folder.rglob("*.yml"):
+            for file in list(folder.rglob("*.yml")) + list(folder.rglob("*.yaml")):
                 for name, ref in pattern.findall(file.read_text()):
                     if (name, ref) in visited:
                         continue
@@ -141,6 +141,7 @@ runs:
                     subprocess.run(["git", "clone", "--depth", "1", "--branch", ref, "https://github.com/" + name + ".git", str(dest)], check=True)
                     mappings.append(f"{name}@{ref}=/dependencies/{dest.name}")
                     pending.append(dest / ".github/workflows")
+                    pending.append(dest / "actions")
         (root / "mappings.json").write_text(json.dumps(mappings))
         PY
     - name: Start isolated mock GitHub and event dispatcher
