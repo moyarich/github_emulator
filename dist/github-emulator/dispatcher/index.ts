@@ -365,7 +365,7 @@ export async function executeWorkflows(
       "--env",
       "GIT_CONFIG_KEY_0=url.file:///emulator-source.insteadOf",
       "--env",
-      "GIT_CONFIG_VALUE_0=https://github.emulator.test/moyarich/console",
+      `GIT_CONFIG_VALUE_0=https://github.emulator.test/${process.env.DISPATCH_REPOSITORY || ""}`,
       "--env",
       "GIT_CONFIG_KEY_1=url.file:///dependencies/reusable-workflows.insteadOf",
       "--env",
