@@ -153,6 +153,7 @@ runs:
               DISPATCH_WORKSPACE: ${DISPATCH_WORKSPACE}
               DISPATCH_REUSABLE_WORKFLOWS_HOST: ${RUNNER_TEMP}/mock-reusable-workflows
               DISPATCH_SOURCE_SHA: ${SOURCE_SHA}
+              DISPATCH_REPOSITORY: ${REPO}
               DISPATCH_WORKFLOWS: .github/workflows
         YAML
         export COMPOSE_FILE="$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml"
