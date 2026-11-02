@@ -52,7 +52,7 @@ export function activity(
           ...previous,
           state: "closed",
           merged: true,
-          merge_commit_sha: result.sha,
+          merge_commit_sha: process.env.DISPATCH_SOURCE_SHA || result.sha,
         },
       },
     };
