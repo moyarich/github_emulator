@@ -360,20 +360,6 @@ export async function executeWorkflows(
       "GH_HOST=github.emulator.test",
       // Checkout uses the simulated GitHub hostname. Resolve the seeded repository
       // from the read-only workspace rather than requiring mock smart-HTTP Git.
-      "--env",
-      "GIT_CONFIG_COUNT=3",
-      "--env",
-      "GIT_CONFIG_KEY_0=url.file:///emulator-source.insteadOf",
-      "--env",
-      `GIT_CONFIG_VALUE_0=https://github.emulator.test/${process.env.DISPATCH_REPOSITORY || ""}`,
-      "--env",
-      "GIT_CONFIG_KEY_1=url.file:///dependencies/reusable-workflows.insteadOf",
-      "--env",
-      "GIT_CONFIG_VALUE_1=https://github.com/moyarich/reusable-workflows",
-      "--env",
-      "GIT_CONFIG_KEY_2=protocol.file.allow",
-      "--env",
-      "GIT_CONFIG_VALUE_2=always",
       "--secret-file",
       "/dev/null",
       "--env-file",
@@ -398,13 +384,25 @@ export async function executeWorkflows(
       throw new Error(
         "DISPATCH_LOCAL_REPOSITORIES must be a JSON array of act repository mappings",
       );
-    for (const repository of repositories)
-      args.push("--local-repository", repository);
+    const mappings = repositories as string[];
+    for (const repository of mappings) args.push("--local-repository", repository);
+    const gitMappings = [
+      { url: `https://github.emulator.test/${process.env.REPO || process.env.DISPATCH_REPOSITORY || ""}`, path: "/emulator-source" },
+      ...mappings.map((mapping) => {
+        const match = /^([^@=]+)@[^=]+=(.+)$/.exec(mapping);
+        if (!match) throw new Error(`Invalid local repository mapping: ${mapping}`);
+        return { url: `https://github.com/${match[1]}`, path: match[2] };
+      }),
+    ];
+    args.push("--env", `GIT_CONFIG_COUNT=${gitMappings.length + 1}`);
+    gitMappings.forEach(({ url, path }, index) => {
+      args.push("--env", `GIT_CONFIG_KEY_${index}=url.file://${path}.insteadOf`);
+      args.push("--env", `GIT_CONFIG_VALUE_${index}=${url}`);
+    });
+    args.push("--env", `GIT_CONFIG_KEY_${gitMappings.length}=protocol.file.allow`, "--env", `GIT_CONFIG_VALUE_${gitMappings.length}=always`);
     const volume = process.env.DISPATCH_CA_VOLUME;
-    const reusable = process.env.DISPATCH_REUSABLE_WORKFLOWS_HOST;
-    // act job containers do not inherit dispatcher mounts. Expose the seeded Git
-    // checkout explicitly so Git URL rewriting can fetch the source commit.
-    args.push("--container-options", `--volume ${workspace}:/emulator-source:ro${reusable ? ` --volume ${reusable}:/dependencies/reusable-workflows:ro` : ""}${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}`);
+    const dependencies = process.env.DISPATCH_DEPENDENCIES_HOST;
+    args.push("--container-options", `--volume ${workspace}:/emulator-source:ro${dependencies ? ` --volume ${dependencies}:/dependencies:ro` : ""}${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}`);
     if (volume)
       args.push(
         ...["SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO"].flatMap(
