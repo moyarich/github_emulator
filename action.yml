@@ -138,7 +138,12 @@ runs:
                         continue
                     visited.add((name, ref))
                     dest = root / str(len(visited))
-                    subprocess.run(["git", "clone", "--depth", "1", "--branch", ref, "https://github.com/" + name + ".git", str(dest)], check=True)
+                    url = "https://github.com/" + name + ".git"
+                    if re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+                        subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", url, str(dest)], check=True)
+                        subprocess.run(["git", "-C", str(dest), "checkout", "--detach", ref], check=True)
+                    else:
+                        subprocess.run(["git", "clone", "--depth", "1", "--branch", ref, url, str(dest)], check=True)
                     mappings.append(f"{name}@{ref}=/dependencies/{dest.name}")
                     pending.append(dest / ".github/workflows")
                     pending.append(dest / "actions")
