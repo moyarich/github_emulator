@@ -121,37 +121,6 @@ runs:
         gh release download v0.2.89 --repo nektos/act --pattern act_Linux_x86_64.tar.gz --dir "$RUNNER_TEMP/act"
         tar xzf "$RUNNER_TEMP/act/act_Linux_x86_64.tar.gz" -C "$RUNNER_TEMP/act" act
         echo "$RUNNER_TEMP/act" >> "$GITHUB_PATH"
-        mkdir -p "$RUNNER_TEMP/emulator-dependencies"
-        python3 - <<'PY'
-        import json, os, pathlib, re, subprocess
-        root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "emulator-dependencies"
-        pending = [pathlib.Path(os.environ["DISPATCH_WORKSPACE"]) / ".github/workflows"]
-        visited, mappings = set(), []
-        pattern = re.compile(r"uses:\s*[\x27\x22]?([\w.-]+/[\w.-]+)(?:/[^@\s\x27\x22]+)?@([\w./-]+)")
-        while pending:
-            folder = pending.pop()
-            if not folder.exists():
-                continue
-            for file in list(folder.rglob("*.yml")) + list(folder.rglob("*.yaml")):
-                for name, ref in pattern.findall(file.read_text()):
-                    if (name, ref) in visited:
-                        continue
-                    visited.add((name, ref))
-                    dest = root / str(len(visited))
-                    url = "https://github.com/" + name + ".git"
-                    if re.fullmatch(r"[0-9a-fA-F]{40}", ref):
-                        subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", url, str(dest)], check=True)
-                        subprocess.run(["git", "-C", str(dest), "checkout", "--detach", ref], check=True)
-                    else:
-                        result = subprocess.run(["git", "clone", "--depth", "1", "--branch", ref, url, str(dest)], capture_output=True, text=True)
-                        if result.returncode:
-                            print(f"Warning: could not resolve {name}@{ref}; leaving it to act: {result.stderr.strip()}")
-                            continue
-                    mappings.append(f"{name}@{ref}=/dependencies/{dest.name}")
-                    if "/.github/workflows/" in file.as_posix() or file.parent == folder:
-                        pending.append(dest / ".github/workflows")
-        (root / "mappings.json").write_text(json.dumps(mappings))
-        PY
     - name: Start isolated mock GitHub and event dispatcher
       if: inputs.pr-number != ''
       shell: bash
@@ -174,12 +143,9 @@ runs:
             volumes:
               - ${DISPATCH_WORKSPACE}:${DISPATCH_WORKSPACE}:ro
               - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
-              - ${RUNNER_TEMP}/emulator-dependencies:/dependencies:ro
             environment:
-              DISPATCH_LOCAL_REPOSITORIES_FILE: /dependencies/mappings.json
               DISPATCH_IMAGE: github-emulator-test:${COMPOSE_PROJECT_NAME}
               DISPATCH_WORKSPACE: ${DISPATCH_WORKSPACE}
-              DISPATCH_DEPENDENCIES_HOST: ${RUNNER_TEMP}/emulator-dependencies
               DISPATCH_SOURCE_SHA: ${SOURCE_SHA}
               DISPATCH_REPOSITORY: ${REPO}
               DISPATCH_WORKFLOWS: .github/workflows
