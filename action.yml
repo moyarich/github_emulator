@@ -143,7 +143,10 @@ runs:
                         subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", url, str(dest)], check=True)
                         subprocess.run(["git", "-C", str(dest), "checkout", "--detach", ref], check=True)
                     else:
-                        subprocess.run(["git", "clone", "--depth", "1", "--branch", ref, url, str(dest)], check=True)
+                        result = subprocess.run(["git", "clone", "--depth", "1", "--branch", ref, url, str(dest)], capture_output=True, text=True)
+                        if result.returncode:
+                            print(f"Warning: could not resolve {name}@{ref}; leaving it to act: {result.stderr.strip()}")
+                            continue
                     mappings.append(f"{name}@{ref}=/dependencies/{dest.name}")
                     pending.append(dest / ".github/workflows")
                     pending.append(dest / "actions")
