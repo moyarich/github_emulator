@@ -61,7 +61,7 @@ try {
     '    steps:',
     '      - name: Create isolated draft release',
     '        run: |',
-    '          node -e "fetch(process.env.MOCK_API_URL + \u0027/repos/fixture/event-dispatch/releases\u0027, { method: \u0027POST\u0027, headers: { \u0027Content-Type\u0027: \u0027application/json\u0027 }, body: JSON.stringify({ tag_name: \u0027v0.2.0\u0027, name: \u0027Mock release\u0027, draft: true }) }).then(r => { if (!r.ok) process.exit(1); console.log(\u0027draft-release-created\u0027); }).catch(e => { console.error(e); process.exit(1); })"',
+    '          node -e "fetch(\u0027__MOCK_API_URL__/repos/fixture/event-dispatch/releases\u0027, { method: \u0027POST\u0027, headers: { \u0027Content-Type\u0027: \u0027application/json\u0027 }, body: JSON.stringify({ tag_name: \u0027v0.2.0\u0027, name: \u0027Mock release\u0027, draft: true }) }).then(r => { if (!r.ok) process.exit(1); console.log(\u0027draft-release-created\u0027); }).catch(e => { console.error(e); process.exit(1); })"',
     '',
   ].join('\n'));
   const releases = [];
@@ -114,6 +114,13 @@ try {
   upstream.listen(0, '0.0.0.0');
   await once(upstream, 'listening');
   const upstreamPort = upstream.address().port;
+  if (realAct) {
+    const reusablePath = join(workspace, '.github/workflows/reusable-release.yml');
+    const fixture = await readFile(reusablePath, 'utf8');
+    await writeFile(reusablePath, fixture.replace('__MOCK_API_URL__', `http://host.docker.internal:${upstreamPort}`));
+    execFileSync('git', ['-C', workspace, 'add', reusablePath]);
+    execFileSync('git', ['-C', workspace, 'commit', '-qm', 'Configure isolated release API']);
+  }
   const port = await new Promise((resolvePort, reject) => {
     const server = createServer();
     server.once('error', reject);
