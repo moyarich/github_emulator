@@ -51,7 +51,7 @@ runs:
     - name: Start standard GitHub emulator
       id: standard
       if: inputs.pr-number == ''
-      uses: ./.github/actions/start-emulator
+      uses: $/.github/actions/start-emulator
       with:
         repository: ${{ inputs.repository }}
         token: ${{ inputs.token }}
