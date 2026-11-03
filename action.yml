@@ -146,7 +146,7 @@ runs:
             image: github-emulator-test:${COMPOSE_PROJECT_NAME}
             volumes:
               - ${DISPATCH_WORKSPACE}:${DISPATCH_WORKSPACE}:ro
-              - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
+              - ${ACTION_PATH}:/emulator-checkout:ro
             environment:
               DISPATCH_IMAGE: github-emulator-test:${COMPOSE_PROJECT_NAME}
               DISPATCH_WORKSPACE: ${DISPATCH_WORKSPACE}
