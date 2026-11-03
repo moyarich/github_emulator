@@ -79,6 +79,12 @@ try {
     execFileSync('git', ['-C', workspace, 'config', 'user.name', 'CI']);
     execFileSync('git', ['-C', workspace, 'add', '.']);
     execFileSync('git', ['-C', workspace, 'commit', '-qm', 'fixture']);
+    execFileSync('git', ['-C', workspace, 'branch', '-M', 'main']);
+    execFileSync('git', ['-C', workspace, 'checkout', '-qb', 'release/prepare-test']);
+    await writeFile(join(workspace, 'CHANGELOG.md'), '## v0.2.0 release preparation\n');
+    execFileSync('git', ['-C', workspace, 'add', 'CHANGELOG.md']);
+    execFileSync('git', ['-C', workspace, 'commit', '-qm', 'Prepare release']);
+    execFileSync('git', ['-C', workspace, 'checkout', '-q', 'main']);
   }
   let pr = { number: 7, state: 'open', merged: false, base: { ref: 'main' }, head: { ref: 'feature/test' } };
   upstream = createServer(async (req, res) => {
@@ -95,8 +101,13 @@ try {
       return json(201, { id: releases.length, ...release });
     }
     if (path === `/repos/${repo}/pulls/7/merge` && req.method === 'PUT') {
+      let sha = 'fixture-merge-sha';
+      if (realAct) {
+        execFileSync('git', ['-C', workspace, 'merge', '--no-ff', '-m', 'Merge release preparation PR', 'release/prepare-test']);
+        sha = execFileSync('git', ['-C', workspace, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+      }
       pr = { ...pr, merged: true, state: 'closed' };
-      return json(200, { merged: true, sha: 'fixture-merge-sha' });
+      return json(200, { merged: true, sha });
     }
     json(404, { message: 'Not found' });
   });
@@ -115,7 +126,7 @@ try {
     env: { ...process.env, PATH: realAct ? process.env.PATH : `${bin}:${process.env.PATH}`, ACT_CALLS: calls,
       DISPATCH_ENABLED: '1', DISPATCH_WORKSPACE: workspace, DISPATCH_WORKFLOWS: '.github/workflows',
       DISPATCH_UPSTREAM: `http://127.0.0.1:${upstreamPort}`, DISPATCH_PORT: String(port),
-      REPO: repo, TOKEN: token, DISPATCH_SOURCE_SHA: 'fixture-merge-sha',
+      REPO: repo, TOKEN: token, ...(realAct ? {} : { DISPATCH_SOURCE_SHA: 'fixture-merge-sha' }),
       ...(realAct ? { DISPATCH_NETWORK: process.env.DISPATCH_NETWORK || 'bridge', DISPATCH_IMAGE: 'node:24-bookworm', DISPATCH_TEST_API_URL: `http://host.docker.internal:${upstreamPort}` } : {}) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -164,6 +175,7 @@ try {
     assert.equal(releases.length, 1, 'Exactly one draft release must be created');
     assert.equal(releases[0].tag_name, 'v0.2.0');
     assert.equal(releases[0].draft, true);
+    assert.match(execFileSync('git', ['-C', workspace, 'show', 'HEAD:CHANGELOG.md'], { encoding: 'utf8' }), /v0\.2\.0/);
   } else {
     const recorded = (await readFile(calls, 'utf8')).trim().split('\n').map(JSON.parse);
     assert.equal(recorded.length, 1, 'Exactly one matching workflow should invoke act');
