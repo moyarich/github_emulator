@@ -11,7 +11,9 @@ export async function setupSandbox(
   const image = `github-emulator-test:${projectName}`;
   await command("docker", ["build", "-f", join(distribution, "docker/Dockerfile"),
     "--target", "mock-github", "-t", image, distribution]);
-  await command("docker", ["compose", "-f", join(distribution, "compose.yaml"), "build", "github-proxy"]);
+  await command("docker", ["compose", "-p", projectName, "-f", join(distribution, "compose.yaml"), "build", "github-proxy"], {
+    env: { ...process.env, COMPOSE_PROJECT_NAME: projectName, EMULATOR_PORT: "0", HTTPS_PORT: "0" },
+  });
   const actDirectory = join(temporaryDirectory, "act");
   const { mkdirSync } = await import("node:fs");
   mkdirSync(actDirectory, { recursive: true });
