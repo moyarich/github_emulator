@@ -1,4 +1,4 @@
-import { cpSync, copyFileSync } from "node:fs";
+import { cpSync, copyFileSync, mkdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
@@ -31,6 +31,11 @@ export function githubAction(): Plugin {
       copyFileSync(
         resolve(directory, "actions/setup-github-emulator/action.yml"),
         resolve(root, "action.yml"),
+      );
+      mkdirSync(resolve(root, "actions"), { recursive: true });
+      copyFileSync(
+        resolve(directory, "actions/emulate-pr-merge/action.yml"),
+        resolve(root, "actions/action.yml"),
       );
     },
   };
