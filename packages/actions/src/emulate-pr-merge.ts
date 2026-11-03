@@ -27,7 +27,7 @@ export async function emulatePrMerge(environment: NodeJS.ProcessEnv = process.en
   writeRunnerFile(environment.GITHUB_STATE, "pr-merge-state", statePath);
   try {
     const source = await importPullRequest(config, temp);
-    const actDirectory = await setupSandbox(distribution, temp, project);
+    const actDirectory = await setupSandbox(distribution, temp, project, config.githubToken);
     // Pass the installed act directory only to the isolated subprocesses.
     const runtime = await startDispatcher(source, root, temp, project, config.githubToken, config.token);
     state.files = runtime.files;
