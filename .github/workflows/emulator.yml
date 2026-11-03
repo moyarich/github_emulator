@@ -74,6 +74,28 @@ jobs:
         run: python3 -m pip install --user --break-system-packages 'ruamel.yaml'
       - name: Simulate PR merge through dispatcher gateway
         run: node tests/integration/automatic-act-dispatch.mjs
+  real-act-merge-dispatch:
+    name: Real act merge-event integration
+    if: github.event_name != 'workflow_dispatch' || inputs.operation == 'test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install workflow discovery YAML parser
+        run: python3 -m pip install --user --break-system-packages 'ruamel.yaml'
+      - name: Install act v0.2.95
+        run: |
+          curl -fsSL https://github.com/nektos/act/releases/download/v0.2.95/act_Linux_x86_64.tar.gz | sudo tar -xz -C /usr/local/bin act
+          act --version
+      - name: Pull runner image
+        run: docker pull node:24-bookworm
+      - name: Execute automatically dispatched workflow with real act
+        env:
+          REAL_ACT: '1'
+        run: node tests/integration/automatic-act-dispatch.mjs
   draft:
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'release'
     permissions:
