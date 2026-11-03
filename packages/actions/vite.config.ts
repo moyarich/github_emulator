@@ -15,7 +15,7 @@ export default defineConfig({
     lib: {
       entry: {
         main: resolve(directory, "src/start-emulator.ts"),
-        post: resolve(directory, "src/post.ts"),
+        post: resolve(directory, "src/finalize-emulator.ts"),
         "prepare-workflow": resolve(directory, "src/prepare-workflow.ts"),
       },
       formats: ["es"],
