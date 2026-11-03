@@ -89,8 +89,16 @@ try {
       ...(realAct ? { DISPATCH_NETWORK: process.env.DISPATCH_NETWORK || 'bridge', DISPATCH_IMAGE: 'node:24-bookworm' } : {}) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  dispatcher.stdout.on('data', b => output.push(b.toString()));
-  dispatcher.stderr.on('data', b => output.push(b.toString()));
+  dispatcher.stdout.on('data', b => {
+    const line = b.toString();
+    output.push(line);
+    if (realAct) process.stdout.write(line);
+  });
+  dispatcher.stderr.on('data', b => {
+    const line = b.toString();
+    output.push(line);
+    if (realAct) process.stderr.write(line);
+  });
   const base = `http://127.0.0.1:${port}`;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const deadline = Date.now() + (realAct ? 240000 : 30000);
@@ -121,16 +129,17 @@ try {
   assert.deepEqual({ accepted: status.accepted, completed: status.completed, failed: status.failed, workflows: status.workflows },
     { accepted: 1, completed: 1, failed: 0, workflows: 1 }, output.join(''));
   if (realAct) {
-    assert.match(output.join(''), /merge-event-fixture|Job succeeded|Success/, 'Real act must execute workflow step');
+    assert.match(output.join(''), /merge-event-fixture/, 'Real act must execute the expected workflow step');
+    assert.match(output.join(''), /\[dispatcher\] act exit code: 0/, 'Real act must exit successfully');
   } else {
     const recorded = (await readFile(calls, 'utf8')).trim().split('\n').map(JSON.parse);
     assert.equal(recorded.length, 1, 'Exactly one matching workflow should invoke act');
-  assert.equal(recorded[0].args[0], 'pull_request');
-  assert.equal(recorded[0].event.action, 'closed');
-  assert.equal(recorded[0].event.pull_request.merged, true);
-  assert.equal(recorded[0].event.pull_request.base.ref, 'main');
+    assert.equal(recorded[0].args[0], 'pull_request');
+    assert.equal(recorded[0].event.action, 'closed');
+    assert.equal(recorded[0].event.pull_request.merged, true);
+    assert.equal(recorded[0].event.pull_request.base.ref, 'main');
     assert.ok(recorded[0].args.includes(join(workspace, '.github/workflows/merge.yml')));
-  assert.ok(!recorded[0].args.includes(join(workspace, '.github/workflows/ignore.yml')));
+    assert.ok(!recorded[0].args.includes(join(workspace, '.github/workflows/ignore.yml')));
   }
   console.log(realAct ? 'PASS: real act executed the automatically dispatched workflow' : 'PASS: mock PR merge automatically dispatched exactly one matching workflow to act');
 } finally {
