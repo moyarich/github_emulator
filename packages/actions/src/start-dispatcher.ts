@@ -50,6 +50,7 @@ export async function startDispatcher(
   temporaryDirectory: string,
   project: string,
   githubToken: string,
+  token: string,
   command: typeof execute = execute,
 ): Promise<DispatcherRuntime> {
   const image = `github-emulator-test:${project}`;
@@ -57,6 +58,17 @@ export async function startDispatcher(
   writeFileSync(override, dispatcherOverride(source, actionRoot, temporaryDirectory, image, githubToken), { mode: 0o600 });
   const distribution = join(actionRoot, "dist/github-emulator");
   const files = [join(distribution, "compose.yaml"), join(distribution, "compose.dispatcher.yaml"), override];
-  await command("docker", [...composeArguments(project, files), "up", "--detach", "--wait", "--no-build"]);
+  await command("docker", [...composeArguments(project, files), "up", "--detach", "--wait", "--no-build"], {
+    env: {
+      ...process.env,
+      COMPOSE_PROJECT_NAME: project,
+      DISPATCH_WORKSPACE: source.workspace,
+      REPO: source.repository,
+      TOKEN: token,
+      BASE_BRANCH: source.baseBranch,
+      EMULATOR_PORT: "0",
+      HTTPS_PORT: "0",
+    },
+  });
   return { project, files, image };
 }
