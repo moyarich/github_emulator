@@ -27,6 +27,6 @@ inputs:
 
 runs:
   using: node24
-  main: dist/github-emulator/emulate-pr-merge.js
-  post: dist/github-emulator/finalize-pr-merge.js
+  main: ../dist/github-emulator/emulate-pr-merge.js
+  post: ../dist/github-emulator/finalize-pr-merge.js
   post-if: always()
