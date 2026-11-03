@@ -18,6 +18,7 @@ export function prMergeConfiguration(env: NodeJS.ProcessEnv = process.env): PrMe
   const githubToken = input("github-token", "", env);
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error("repository must be owner/name");
   if (!/^[1-9]\d*$/.test(rawNumber)) throw new Error("pr-number must be a positive integer");
+  if (!Number.isSafeInteger(Number(rawNumber))) throw new Error("pr-number is too large");
   if (workflow && !/^\.github\/workflows\/[\w.-]+\.ya?ml$/.test(workflow))
     throw new Error("workflow must be a .github/workflows YAML path");
   if (!githubToken) throw new Error("github-token is required for PR emulation");
