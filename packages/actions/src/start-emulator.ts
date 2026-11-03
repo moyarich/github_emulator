@@ -10,7 +10,18 @@ import {
   writeRunnerFile,
 } from "./shared.js";
 
-export async function run(environment: NodeJS.ProcessEnv = process.env) {
+/**
+ * Starts a seeded GitHub emulator in an isolated Docker container.
+ *
+ * Validates the runner and optional seed file, builds the emulator image,
+ * waits for the local API to become healthy, and exports action outputs and
+ * environment variables for subsequent workflow steps. On startup failure,
+ * removes the newly created container before propagating the error.
+ *
+ * @param environment - GitHub Actions environment and action inputs.
+ * @throws If the runner is unsupported, the seed is invalid, or startup fails.
+ */
+export async function run(environment: NodeJS.ProcessEnv = process.env): Promise<void> {
   const config = configuration(environment);
   if (environment.RUNNER_OS !== "Linux")
     throw new Error("Use a Linux runner with Docker available");

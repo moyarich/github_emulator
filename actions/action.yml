@@ -1,0 +1,32 @@
+name: MoyaRich PR Merge Emulator
+author: moyarich
+description: Emulate merging a selected pull request and dispatch matching workflows with act.
+branding:
+  icon: server
+  color: blue
+
+inputs:
+  repository:
+    description: Repository to seed locally; does not access or modify the real repository
+    default: ${{ github.repository }}
+  token:
+    description: Local emulator token; use a test value, not a real GitHub token
+    default: local-test-token
+  base-branch:
+    description: Seeded base branch when using the default seed
+    default: main
+  pr-number:
+    description: Pull request number to emulate without merging the real PR
+    required: true
+  workflow:
+    description: Optional workflow path to validate; when omitted, matching workflows are discovered from the repository
+    default: ""
+  github-token:
+    description: GitHub token with read access to the source repository and PR
+    required: false
+
+runs:
+  using: node24
+  main: ../dist/github-emulator/emulate-pr-merge.js
+  post: ../dist/github-emulator/finalize-pr-merge.js
+  post-if: always()

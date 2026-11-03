@@ -396,6 +396,21 @@ export async function executeWorkflows(
           ],
         ),
       );
+    // actions/checkout performs its own git fetch; act's --local-repository only
+    // redirects action resolution, not git transport inside nested jobs.
+    const reusableSource = process.env.DISPATCH_REUSABLE_WORKFLOWS_HOST;
+    if (reusableSource) {
+      args.push(
+        "--container-options",
+        `--volume ${reusableSource}:/emulator-reusable-workflows:ro`,
+        "--env",
+        "GIT_CONFIG_COUNT=1",
+        "--env",
+        "GIT_CONFIG_KEY_0=url.file:///emulator-reusable-workflows.insteadOf",
+        "--env",
+        "GIT_CONFIG_VALUE_0=https://github.com/moyarich/reusable-workflows",
+      );
+    }
     console.log(
       `[dispatcher] Running ${event.name}:${event.payload.action || ""}`,
     );

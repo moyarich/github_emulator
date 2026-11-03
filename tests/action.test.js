@@ -6,7 +6,7 @@ import {
   configuration,
   writeRunnerFile,
 } from "../packages/actions/src/shared.ts";
-import { cleanup } from "../packages/actions/src/post.ts";
+import { cleanup } from "../packages/actions/src/finalize-emulator.ts";
 
 describe("emulator action", () => {
   it("defaults to a server seeded for the caller repository", () => {

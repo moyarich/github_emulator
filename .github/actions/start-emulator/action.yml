@@ -34,6 +34,6 @@ outputs:
 
 runs:
   using: node24
-  main: ../../../dist/github-emulator/main.js
-  post: ../../../dist/github-emulator/post.js
+  main: ../../../dist/github-emulator/start-emulator.js
+  post: ../../../dist/github-emulator/finalize-emulator.js
   post-if: always()

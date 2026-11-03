@@ -14,9 +14,13 @@ export default defineConfig({
     minify: false,
     lib: {
       entry: {
-        main: resolve(directory, "src/main.ts"),
-        post: resolve(directory, "src/post.ts"),
+        "start-emulator": resolve(directory, "src/start-emulator.ts"),
+        "finalize-emulator": resolve(directory, "src/finalize-emulator.ts"),
         "prepare-workflow": resolve(directory, "src/prepare-workflow.ts"),
+        "emulate-pr-merge": resolve(directory, "src/emulate-pr-merge.ts"),
+        "finalize-pr-merge": resolve(directory, "src/finalize-pr-merge.ts"),
+        "dispatch-merge-event": resolve(directory, "src/dispatch-merge-event.ts"),
+        "verify-mock-releases": resolve(directory, "src/verify-mock-releases.ts"),
       },
       formats: ["es"],
       fileName: (_format, name) => `${name}.js`,

@@ -45,11 +45,12 @@ export function configuration(environment: NodeJS.ProcessEnv = process.env) {
 export function execute(
   command: string,
   args: string[],
-  { capture = false }: { capture?: boolean } = {},
+  { capture = false, env }: { capture?: boolean; env?: NodeJS.ProcessEnv } = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit",
+      env: env ?? process.env,
     });
     let stdout = "";
     if (capture)
