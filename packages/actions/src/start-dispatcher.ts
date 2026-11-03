@@ -7,6 +7,7 @@ import type { ImportedPullRequest } from "./import-pr.js";
 /** Compose runtime paths for the isolated emulation environment. */
 export interface DispatcherRuntime {
   project: string;
+  environment: NodeJS.ProcessEnv;
   files: string[];
   image: string;
 }
@@ -58,8 +59,7 @@ export async function startDispatcher(
   writeFileSync(override, dispatcherOverride(source, actionRoot, temporaryDirectory, image, githubToken), { mode: 0o600 });
   const distribution = join(actionRoot, "dist/github-emulator");
   const files = [join(distribution, "compose.yaml"), join(distribution, "compose.dispatcher.yaml"), override];
-  await command("docker", [...composeArguments(project, files), "up", "--detach", "--wait", "--no-build"], {
-    env: {
+  const environment: NodeJS.ProcessEnv = {
       ...process.env,
       COMPOSE_PROJECT_NAME: project,
       DISPATCH_WORKSPACE: source.workspace,
@@ -68,7 +68,7 @@ export async function startDispatcher(
       BASE_BRANCH: source.baseBranch,
       EMULATOR_PORT: "0",
       HTTPS_PORT: "0",
-    },
-  });
-  return { project, files, image };
+  };
+  await command("docker", [...composeArguments(project, files), "up", "--detach", "--wait", "--no-build"], { env: environment });
+  return { project, files, image, environment };
 }
