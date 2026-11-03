@@ -15,7 +15,6 @@ let upstream;
 try {
   const workspace = join(root, 'workspace');
   const bin = join(root, 'bin');
-  const marker = join(root, 'workflow-executed');
   await mkdir(join(workspace, '.github', 'workflows'), { recursive: true });
   await mkdir(bin);
   await writeFile(join(workspace, '.github/workflows/merge.yml'), [
@@ -28,7 +27,7 @@ try {
     '  verify:',
     '    runs-on: ubuntu-latest',
     '    steps:',
-    realAct ? `      - run: echo merge-event-fixture > /emulator-source/../workflow-executed` : '      - run: echo merge-event-fixture',
+    '      - run: echo merge-event-fixture',
     '',
   ].join('\n'));
   await writeFile(join(workspace, '.github/workflows/ignore.yml'), [
@@ -130,7 +129,11 @@ try {
   }
   console.log(realAct ? 'PASS: real act executed the automatically dispatched workflow' : 'PASS: mock PR merge automatically dispatched exactly one matching workflow to act');
 } finally {
-  if (dispatcher && dispatcher.exitCode === null && dispatcher.signalCode === null) {\n    const exited = once(dispatcher, 'exit');\n    dispatcher.kill('SIGTERM');\n    await exited;\n  }
+  if (dispatcher && dispatcher.exitCode === null && dispatcher.signalCode === null) {
+    const exited = once(dispatcher, 'exit');
+    dispatcher.kill('SIGTERM');
+    await exited;
+  }
   if (upstream) await new Promise(r => upstream.close(r));
   await rm(root, { recursive: true, force: true });
 }
