@@ -6,6 +6,7 @@ export async function setupSandbox(
   distribution: string,
   temporaryDirectory: string,
   projectName: string,
+  githubToken: string,
   command: typeof execute = execute,
 ): Promise<string> {
   const image = `github-emulator-test:${projectName}`;
@@ -18,7 +19,9 @@ export async function setupSandbox(
   const { mkdirSync } = await import("node:fs");
   mkdirSync(actDirectory, { recursive: true });
   await command("gh", ["release", "download", "v0.2.95", "--repo", "nektos/act",
-    "--pattern", "act_Linux_x86_64.tar.gz", "--dir", actDirectory]);
+    "--pattern", "act_Linux_x86_64.tar.gz", "--dir", actDirectory], {
+      env: { ...process.env, GH_TOKEN: githubToken },
+    });
   await command("tar", ["xzf", join(actDirectory, "act_Linux_x86_64.tar.gz"), "-C", actDirectory, "act"]);
   return actDirectory;
 }
