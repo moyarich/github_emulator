@@ -40,19 +40,17 @@ runs:
         INPUT_TOKEN: ${{ inputs.token }}
       run: bash "$ACTION_ROOT/dist/github-emulator/scripts/action/initialize.sh"
     - name: Import selected PR without merging it
+      shell: bash
       env:
         INPUT_BASE_BRANCH: ${{ inputs.base-branch }}
         GH_TOKEN: ${{ inputs.github-token }}
-      shell: bash
-      env:
         ACTION_ROOT: ${{ github.action_path }}/..
       run: bash "$ACTION_ROOT/dist/github-emulator/scripts/action/import-pr.sh"
     - name: Build sandbox and install act
+      shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         ACTION_PATH: ${{ github.action_path }}/..
-      shell: bash
-      env:
         ACTION_ROOT: ${{ github.action_path }}/..
       run: bash "$ACTION_ROOT/dist/github-emulator/scripts/action/build-sandbox.sh"
     - name: Start isolated mock GitHub and event dispatcher
@@ -63,11 +61,10 @@ runs:
         ACTION_PATH: ${{ github.action_path }}/..
       run: bash "$ACTION_ROOT/dist/github-emulator/scripts/action/start-dispatcher.sh"
     - name: Prepare emulated merged PR
+      shell: bash
       env:
         SELECTED_EVENT: pull_request
         MOCK_API_URL: http://127.0.0.1:4001
-      shell: bash
-      env:
         ACTION_ROOT: ${{ github.action_path }}/..
       run: bash "$ACTION_ROOT/dist/github-emulator/scripts/action/prepare-pr.sh"
     - name: Trigger merge event through mock GitHub gateway
