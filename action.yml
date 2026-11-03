@@ -125,6 +125,7 @@ runs:
       if: inputs.pr-number != ''
       shell: bash
       run: |
+        export GITHUB_DEPENDENCY_TOKEN="${{ inputs.github-token }}"
         cat > "$RUNNER_TEMP/mock-service.yaml" <<'YAML'
         services:
           github-emulator:
@@ -149,6 +150,7 @@ runs:
               DISPATCH_SOURCE_SHA: ${SOURCE_SHA}
               DISPATCH_REPOSITORY: ${REPO}
               DISPATCH_WORKFLOWS: .github/workflows
+              DISPATCH_GITHUB_TOKEN: ${GITHUB_DEPENDENCY_TOKEN}
         YAML
         export COMPOSE_FILE="$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml"
         echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$GITHUB_ENV"
