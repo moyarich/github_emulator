@@ -115,9 +115,16 @@ try {
   await once(upstream, 'listening');
   const upstreamPort = upstream.address().port;
   if (realAct) {
+    // A Linux act container on the bridge network can reach the host gateway,
+    // whereas host.docker.internal is not guaranteed to resolve on Linux.
+    const gateway = execFileSync('docker', [
+      'network', 'inspect', process.env.DISPATCH_NETWORK || 'bridge',
+      '--format', '{{(index .IPAM.Config 0).Gateway}}',
+    ], { encoding: 'utf8' }).trim();
+    assert.match(gateway, /^\d{1,3}(?:\.\d{1,3}){3}$/, 'Expected IPv4 Docker gateway');
     const reusablePath = join(workspace, '.github/workflows/reusable-release.yml');
     const fixture = await readFile(reusablePath, 'utf8');
-    await writeFile(reusablePath, fixture.replace('__MOCK_API_URL__', `http://host.docker.internal:${upstreamPort}`));
+    await writeFile(reusablePath, fixture.replace('__MOCK_API_URL__', `http://${gateway}:${upstreamPort}`));
     execFileSync('git', ['-C', workspace, 'add', reusablePath]);
     execFileSync('git', ['-C', workspace, 'commit', '-qm', 'Configure isolated release API']);
   }
