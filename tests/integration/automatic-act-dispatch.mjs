@@ -86,7 +86,7 @@ try {
     execFileSync('git', ['-C', workspace, 'commit', '-qm', 'Prepare release']);
     execFileSync('git', ['-C', workspace, 'checkout', '-q', 'main']);
   }
-  let pr = { number: 7, state: 'open', merged: false, base: { ref: 'main' }, head: { ref: 'feature/test' } };
+  let pr = { number: 7, state: 'open', merged: false, base: { ref: 'main' }, head: { ref: realAct ? 'release/prepare-test' : 'feature/test' } };
   upstream = createServer(async (req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname;
     const json = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
