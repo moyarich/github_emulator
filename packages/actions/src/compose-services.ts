@@ -6,11 +6,11 @@ export function composeArguments(project: string, files: readonly string[]): str
 }
 
 /** Stop and remove the isolated emulator services and volumes. */
-export async function stopServices(project: string, files: readonly string[], command: typeof execute = execute): Promise<void> {
-  await command("docker", [...composeArguments(project, files), "down", "--volumes", "--remove-orphans"]);
+export async function stopServices(project: string, files: readonly string[], command: typeof execute = execute, env?: NodeJS.ProcessEnv): Promise<void> {
+  await command("docker", [...composeArguments(project, files), "down", "--volumes", "--remove-orphans"], { env });
 }
 
 /** Read diagnostic logs from the isolated emulator services. */
-export async function readServiceLogs(project: string, files: readonly string[], command: typeof execute = execute): Promise<string> {
-  return command("docker", [...composeArguments(project, files), "logs", "--no-color"], { capture: true });
+export async function readServiceLogs(project: string, files: readonly string[], command: typeof execute = execute, env?: NodeJS.ProcessEnv): Promise<string> {
+  return command("docker", [...composeArguments(project, files), "logs", "--no-color"], { capture: true, env });
 }
