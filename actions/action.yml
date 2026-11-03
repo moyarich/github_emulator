@@ -92,7 +92,7 @@ runs:
     - name: Start isolated mock GitHub and event dispatcher
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        ACTION_PATH: ${{ github.action_path }}/..
       run: |
         export GITHUB_DEPENDENCY_TOKEN="${{ inputs.github-token }}"
         cat > "$RUNNER_TEMP/mock-service.yaml" <<'YAML'
