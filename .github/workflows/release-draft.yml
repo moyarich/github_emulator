@@ -52,6 +52,11 @@ on:
         required: false
         default: ""
         type: string
+      changed-packages-only:
+        description: Skip unchanged tagged packages when drafting all
+        required: true
+        default: true
+        type: boolean
       dry-run:
         description: Preview without creating or modifying release drafts
         required: true
@@ -89,12 +94,13 @@ jobs:
     needs: discover-packages
     permissions:
       contents: read
-    uses: moyarich/reusable-workflows/.github/workflows/reusable_select-release-packages.yml@main
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_release-select-packages.yml@main
     with:
       packages-json: ${{ needs.discover-packages.outputs.packages }}
       ignored-paths-json: '[".github/workflows/release-draft.yml"]'
       package: ${{ github.event_name == 'workflow_dispatch' && inputs.package ||
         'all' }}
+      changed-packages-only: ${{ github.event_name == 'workflow_dispatch' && inputs.changed-packages-only || false }}
       event-name: ${{ github.event_name }}
       before-sha: ${{ github.event.before || '' }}
       after-sha: ${{ github.sha }}

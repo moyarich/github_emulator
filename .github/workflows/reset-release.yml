@@ -47,7 +47,7 @@ jobs:
       contents: write
       packages: read
       pull-requests: read
-    uses: moyarich/reusable-workflows/.github/workflows/reusable_bulk-reset-release.yml@main
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_release-bulk-reset.yml@main
     with:
       package: ${{ inputs.package }}
       target-branch: ${{ inputs.target-branch }}

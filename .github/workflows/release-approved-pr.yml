@@ -4,13 +4,99 @@ on:
   pull_request:
     types: [closed]
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: 'Merged release preparation PR number (for example, 225)'
+        required: true
+        type: string
+      dry-run:
+        description: 'Preview release drafts without writing GitHub Releases'
+        required: true
+        default: true
+        type: boolean
 
 permissions: {}
 
 jobs:
+  release-input-summary:
+    name: Approved release inputs
+    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'release/prepare-')) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pr-number: ${{ steps.selected.outputs.pr-number }}
+      merge-sha: ${{ steps.selected.outputs.merge-sha }}
+    steps:
+      - name: Validate selected merged PR
+        id: selected
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr-number }}
+          EXPECTED_BASE: main
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "::error::Invalid pull request number"; exit 1; }
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" > "$RUNNER_TEMP/approved-pr.json"
+          jq -e --arg repo "$GH_REPO" --arg base "$EXPECTED_BASE" '
+            .merged == true and .state == "closed" and .base.ref == $base and
+            .head.repo.full_name == $repo and (.head.ref | startswith("release/prepare-")) and
+            (.merge_commit_sha | type == "string" and test("^[a-f0-9]{40}$"))
+          ' "$RUNNER_TEMP/approved-pr.json" > /dev/null || { echo "::error::Not a merged release preparation PR"; exit 1; }
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            EVENT_SHA="$(jq -r '.pull_request.merge_commit_sha' "$GITHUB_EVENT_PATH")"
+            ACTUAL_SHA="$(jq -r '.merge_commit_sha' "$RUNNER_TEMP/approved-pr.json")"
+            [[ "$EVENT_SHA" == "$ACTUAL_SHA" ]] || { echo "::error::PR merge commit does not match event"; exit 1; }
+          fi
+          echo "pr-number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "merge-sha=$(jq -r '.merge_commit_sha' "$RUNNER_TEMP/approved-pr.json")" >> "$GITHUB_OUTPUT"
+          {
+            echo "PR_TITLE=$(jq -r '.title | gsub("[\\r\\n]"; " ")' "$RUNNER_TEMP/approved-pr.json")"
+            echo "PR_URL=$(jq -r '.html_url' "$RUNNER_TEMP/approved-pr.json")"
+            echo "PR_HEAD=$(jq -r '.head.ref' "$RUNNER_TEMP/approved-pr.json")"
+            echo "PR_BASE=$(jq -r '.base.ref' "$RUNNER_TEMP/approved-pr.json")"
+            echo "MERGE_SHA=$(jq -r '.merge_commit_sha' "$RUNNER_TEMP/approved-pr.json")"
+          } >> "$GITHUB_ENV"
+      - name: Summarize release inputs
+        env:
+          PR_NUMBER: ${{ steps.selected.outputs.pr-number }}
+          APPROVED_WORKFLOW: moyarich/reusable-workflows/.github/workflows/reusable_release-approved.yml@main
+          EXPECTED_BASE: main
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run == true }}
+        run: |
+          {
+            echo "## Approved release inputs"
+            echo
+            echo "| Input | Value |"
+            echo "| --- | --- |"
+            echo "| Pull request | [#${PR_NUMBER}](${PR_URL}) |"
+            echo "| Title | ${PR_TITLE//|/\\|} |"
+            echo "| Source branch | \`${PR_HEAD}\` |"
+            echo "| Expected base | \`${EXPECTED_BASE}\` |"
+            echo "| Actual base | \`${PR_BASE}\` |"
+            echo "| Merge commit | \`${MERGE_SHA}\` |"
+            echo "| Reusable workflow | \`${APPROVED_WORKFLOW}\` |"
+            echo "| Dry run | \`${DRY_RUN}\` |"
+            if [[ "$DRY_RUN" == "true" ]]; then
+              echo
+              echo "**Preview only:** GitHub Release drafts will not be created or updated."
+            else
+              echo
+              echo "**Write enabled:** GitHub Release drafts may be created or updated."
+            fi
+            echo
+            echo "The reusable workflow verifies the merged package selection and writes draft-release summaries in its own jobs."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   approved-release:
     name: Verify and release approved packages
-    if: ${{ github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'release/prepare-') }}
+    needs: release-input-summary
+    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'release/prepare-')) || (github.event_name == 'workflow_dispatch' && inputs.pr-number != '') }}
     permissions:
       contents: write
       packages: write
@@ -18,10 +104,10 @@ jobs:
       actions: write
       statuses: read
       pull-requests: read
-    uses: moyarich/reusable-workflows/.github/workflows/reusable_approved-release.yml@main
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_release-approved.yml@main
     with:
       expected-base: main
-      required-workflows: .github/workflows/ci_cli.yml
-      dry-run: false
+      pr-number: ${{ github.event_name == 'workflow_dispatch' && inputs.pr-number || '' }}
+      dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run == true }}
     secrets:
       npm-token: ${{ secrets._NPM_TOKEN }}

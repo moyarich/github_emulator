@@ -47,7 +47,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: moyarich/reusable-workflows/.github/workflows/reusable_prepare-release-pr.yml@main
+    uses: moyarich/reusable-workflows/.github/workflows/reusable_release-prepare-pr.yml@main
     with:
       package: ${{ inputs.package }}
       version-mode: ${{ inputs.version-mode }}
