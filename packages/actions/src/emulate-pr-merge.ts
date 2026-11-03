@@ -8,8 +8,7 @@ import { importPullRequest } from "./import-pr.js";
 import { setupSandbox } from "./setup-sandbox.js";
 import { startDispatcher } from "./start-dispatcher.js";
 import { prepareMockPullRequest } from "./prepare-mock-pr.js";
-import { composeArguments, readServiceLogs, stopServices } from "./compose-services.js";
-import { verifyDraftReleases } from "./verify-releases.js";
+import { composeArguments, readServiceLogs } from "./compose-services.js";
 
 interface EmulationState { project: string; files: string[]; environment?: NodeJS.ProcessEnv; }
 
@@ -48,7 +47,12 @@ export async function emulatePrMerge(environment: NodeJS.ProcessEnv = process.en
       "-e", `REPO=${config.repository}`, "-e", `TOKEN=${config.token}`,
       "github-dispatcher", "node", "/emulator-checkout/dist/github-emulator/dispatch-merge-event.js",
     ], { env: runtime.environment });
-    const releases = await verifyDraftReleases(config.repository, config.token);
+    const releaseJson = await execute("docker", [
+      ...composeArguments(project, runtime.files), "exec", "-T",
+      "-e", `REPO=${config.repository}`, "-e", `TOKEN=${config.token}`,
+      "github-dispatcher", "node", "/emulator-checkout/dist/github-emulator/verify-mock-releases.js",
+    ], { capture: true, env: runtime.environment });
+    const releases = JSON.parse(releaseJson) as Array<{ tag_name: string; draft: boolean }>;
     if (environment.GITHUB_STEP_SUMMARY)
       appendFileSync(environment.GITHUB_STEP_SUMMARY,
         `## Emulated PR ${config.repository}#${config.prNumber}\nNo real merge or publish occurred.\n` +
