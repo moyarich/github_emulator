@@ -116,7 +116,7 @@ try {
   assert.ok(!recorded[0].args.includes(join(workspace, '.github/workflows/ignore.yml')));
   console.log('PASS: mock PR merge automatically dispatched exactly one matching workflow to act');
 } finally {
-  if (dispatcher) { dispatcher.kill('SIGTERM'); await once(dispatcher, 'exit').catch(() => {}); }
+  if (dispatcher && dispatcher.exitCode === null && dispatcher.signalCode === null) {\n    const exited = once(dispatcher, 'exit');\n    dispatcher.kill('SIGTERM');\n    await exited;\n  }
   if (upstream) await new Promise(r => upstream.close(r));
   await rm(root, { recursive: true, force: true });
 }
