@@ -408,9 +408,10 @@ export async function executeWorkflows(
             timeout: 15 * 60 * 1000,
             env: {
               ...process.env,
-              GITHUB_TOKEN: token,
-              GH_TOKEN: token,
-              GH_ENTERPRISE_TOKEN: token,
+              // Do not pass the mock API token as GitHub.com clone credentials.
+              GITHUB_TOKEN: "",
+              GH_TOKEN: "",
+              GH_ENTERPRISE_TOKEN: "",
             },
           });
           child.once("error", reject);
