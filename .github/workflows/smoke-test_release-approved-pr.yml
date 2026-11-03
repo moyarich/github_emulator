@@ -24,3 +24,13 @@ jobs:
 
       - name: Run standalone release scenario
         run: docker compose -f packages/emulate-github/compose.yaml run --build --rm smoke-test
+
+      - name: Show emulator diagnostics on failure
+        if: failure()
+        run: |
+          docker compose -f packages/emulate-github/compose.yaml ps -a || true
+          docker compose -f packages/emulate-github/compose.yaml logs --no-color --timestamps || true
+
+      - name: Clean up Docker services
+        if: always()
+        run: docker compose -f packages/emulate-github/compose.yaml down --volumes --remove-orphans || true

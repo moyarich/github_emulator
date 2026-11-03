@@ -49,7 +49,7 @@ services:
         - CMD
         - bash
         - -c
-        - 'source "/tmp/github-emulator-control-$$EMULATE_PORT/health.env" && curl -fsS -o /dev/null -H "Authorization: Bearer $$TOKEN" "$GITHUB_EMULATOR_URL/repos/$REPO"'
+        - 'source "/tmp/github-emulator-control-$$EMULATE_PORT/health.env" && curl -fsS -o /dev/null -H "Authorization: Bearer $$TOKEN" "$$GITHUB_EMULATOR_URL/repos/$$REPO"'
       interval: 5s
       timeout: 3s
       retries: 12
