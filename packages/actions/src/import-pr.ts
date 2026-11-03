@@ -17,6 +17,7 @@ export interface SourcePullRequest {
 /** Resolved checkout and source event for subsequent emulation stages. */
 export interface ImportedPullRequest {
   workspace: string;
+  repository: string;
   sha: string;
   ref: string;
   baseBranch: string;
@@ -55,7 +56,7 @@ export async function importPullRequest(
     repository: pr.base.repo,
   }), { mode: 0o600 });
   return {
-    workspace, sha, ref: `refs/heads/${pr.head.ref}`, baseBranch: pr.base.ref,
+    workspace, repository: config.repository, sha, ref: `refs/heads/${pr.head.ref}`, baseBranch: pr.base.ref,
     sourceEventFile, snapshotFile: join(temporaryDirectory, "mock-snapshot.json"),
     eventFile: join(temporaryDirectory, "mock-event.json"),
   };
