@@ -97,7 +97,12 @@ try {
   let ready = false;
   while (Date.now() < deadline) {
     if (dispatcher.exitCode !== null) break;
-    try { const r = await fetch(`${base}/_dispatcher/health`); if (r.ok) { ready = true; break; } } catch {}
+    try {
+      const response = await fetch(`${base}/_dispatcher/health`);
+      if (response.ok) { ready = true; break; }
+    } catch {
+      // Dispatcher may not have started listening yet; retry until deadline.
+    }
     await new Promise(r => setTimeout(r, 150));
   }
   assert.ok(ready, `Dispatcher did not start: ${output.join('')}`);
