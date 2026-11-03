@@ -52,7 +52,7 @@ export function activity(
           ...previous,
           state: "closed",
           merged: true,
-          merge_commit_sha: process.env.DISPATCH_SOURCE_SHA || result.sha,
+          merge_commit_sha: result.sha,
         },
       },
     };
@@ -347,19 +347,17 @@ export async function executeWorkflows(
       "--eventpath",
       file,
       "--github-instance",
-      "github.com",
-      // Job steps require github.token; keep it as an act secret while
-      // GitHub.com action downloads use anonymous host-side Git.
+      "github.emulator.test",
+      "--replace-ghe-action-with-github-com",
+      "*",
       "--secret",
-      `GITHUB_TOKEN=${process.env.DISPATCH_GITHUB_TOKEN || token}`,
+      `GITHUB_TOKEN=${token}`,
       "--env",
       `GH_TOKEN=${token}`,
       "--env",
       `GH_ENTERPRISE_TOKEN=${token}`,
       "--env",
       "GH_HOST=github.emulator.test",
-      // Checkout uses the simulated GitHub hostname. Resolve the seeded repository
-      // from the read-only workspace rather than requiring mock smart-HTTP Git.
       "--secret-file",
       "/dev/null",
       "--env-file",
@@ -374,24 +372,23 @@ export async function executeWorkflows(
       "--container-architecture",
       process.arch === "arm64" ? "linux/arm64" : "linux/amd64",
     ];
+    const repositories: unknown = JSON.parse(
+      process.env.DISPATCH_LOCAL_REPOSITORIES || "[]",
+    );
+    if (
+      !Array.isArray(repositories) ||
+      repositories.some((value) => typeof value !== "string")
+    )
+      throw new Error(
+        "DISPATCH_LOCAL_REPOSITORIES must be a JSON array of act repository mappings",
+      );
+    for (const repository of repositories)
+      args.push("--local-repository", repository);
     const volume = process.env.DISPATCH_CA_VOLUME;
-    // act resolves all external actions and reusable workflows itself.
-    // Only the emulated target repository is mounted for checkout.
-    args.push("--container-options", `--volume ${workspace}:/emulator-source:ro${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}${process.env.DISPATCH_TEST_API_URL ? " --add-host=host.docker.internal:host-gateway" : ""}`);
-    if (process.env.DISPATCH_TEST_API_URL) {
-      args.push("--env", `MOCK_API_URL=${process.env.DISPATCH_TEST_API_URL}`);
-    }
-    const repository = process.env.REPO || process.env.DISPATCH_REPOSITORY;
-    if (!repository) throw new Error("Missing target repository");
-    args.push("--env", "GIT_CONFIG_COUNT=3",
-      "--env", "GIT_CONFIG_KEY_0=url.file:///emulator-source.insteadOf",
-      "--env", `GIT_CONFIG_VALUE_0=https://github.emulator.test/${repository}`,
-      "--env", "GIT_CONFIG_KEY_1=url.file:///emulator-source.insteadOf",
-      "--env", `GIT_CONFIG_VALUE_1=https://github.com/${repository}`,
-      "--env", "GIT_CONFIG_KEY_2=protocol.file.allow",
-      "--env", "GIT_CONFIG_VALUE_2=always");
     if (volume)
       args.push(
+        "--container-options",
+        `--volume ${volume}:/proxy-data:ro`,
         ...["SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "GIT_SSL_CAINFO"].flatMap(
           (key) => [
             "--env",
@@ -399,6 +396,21 @@ export async function executeWorkflows(
           ],
         ),
       );
+    // actions/checkout performs its own git fetch; act's --local-repository only
+    // redirects action resolution, not git transport inside nested jobs.
+    const reusableSource = process.env.DISPATCH_REUSABLE_WORKFLOWS_HOST;
+    if (reusableSource) {
+      args.push(
+        "--container-options",
+        `--volume ${reusableSource}:/emulator-reusable-workflows:ro`,
+        "--env",
+        "GIT_CONFIG_COUNT=1",
+        "--env",
+        "GIT_CONFIG_KEY_0=url.file:///emulator-reusable-workflows.insteadOf",
+        "--env",
+        "GIT_CONFIG_VALUE_0=https://github.com/moyarich/reusable-workflows",
+      );
+    }
     console.log(
       `[dispatcher] Running ${event.name}:${event.payload.action || ""}`,
     );
@@ -413,18 +425,15 @@ export async function executeWorkflows(
             timeout: 15 * 60 * 1000,
             env: {
               ...process.env,
-              // Do not pass the mock API token as GitHub.com clone credentials.
-              GITHUB_TOKEN: process.env.DISPATCH_GITHUB_TOKEN || "",
-              GH_TOKEN: "",
-              GH_ENTERPRISE_TOKEN: "",
+              GITHUB_TOKEN: token,
+              GH_TOKEN: token,
+              GH_ENTERPRISE_TOKEN: token,
             },
           });
           child.once("error", reject);
-          child.once("exit", (code, signal) => {
-            console.log(`[dispatcher] act exit code: ${code === null ? "null" : code}${signal ? ` (signal: ${signal})` : ""}`);
-            if (code === 0) accept();
-            else reject(new Error(`act exited ${code}${signal ? ` (signal: ${signal})` : ""}`));
-          });
+          child.once("exit", (code) =>
+            code === 0 ? accept() : reject(new Error(`act exited ${code}`)),
+          );
         });
       } catch (error) {
         errors.push(error);

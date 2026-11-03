@@ -34,7 +34,7 @@ emulator_resolve_base_url() {
   elif [[ "${USE_PORTLESS:-0}" == 1 ]]; then
     printf '%s\n' 'https://github.emulate.localhost'
   else
-    printf '%s\n' "${PUBLIC_API:-http://localhost:$EMULATE_PORT}"
+    printf '%s\n' "${EMULATOR_PUBLIC_URL:-http://localhost:$EMULATE_PORT}"
   fi
 }
 
@@ -77,33 +77,28 @@ emulator_prepare_seed() {
     (cd "$(dirname "$seed_path")" && emulate init --service github)
     template="$seed_path"
   fi
-  env REPO="$REPO" TOKEN="$TOKEN" BASE_BRANCH="$BASE_BRANCH" python3 - "$template" "$seed_path" <<'PYTHON'
-import os
-import sys
-from ruamel.yaml import YAML
-
-yaml = YAML()
-source, destination = sys.argv[1:]
-repository = os.environ["REPO"]
-token = os.environ["TOKEN"]
-branch = os.environ["BASE_BRANCH"]
-owner, name = repository.split("/", 1)
-with open(source, encoding="utf-8") as stream:
-    config = yaml.load(stream) or {}
-config.setdefault("tokens", {})[token] = {"login": owner, "scopes": ["repo", "user"]}
-github = config.setdefault("github", {})
-users = github.setdefault("users", [])
-if not any(user["login"] == owner for user in users):
-    users.append({"login": owner})
-repos = github.setdefault("repos", [])
-repo = next((repo for repo in repos if repo["owner"] == owner and repo["name"] == name), None)
-if repo is None:
-    repo = {"owner": owner, "name": name, "auto_init": True}
-    repos.append(repo)
-repo["default_branch"] = branch
-with open(destination, "w", encoding="utf-8") as stream:
-    yaml.dump(config, stream)
-PYTHON
+  env REPO="$REPO" TOKEN="$TOKEN" BASE_BRANCH="$BASE_BRANCH" node - "$template" "$seed_path" <<'JS'
+const fs = require('node:fs');
+const YAML = require('yaml');
+const [source, destination] = process.argv.slice(2);
+const [owner, name] = process.env.REPO.split('/', 2);
+const config = YAML.parse(fs.readFileSync(source, 'utf8')) ?? {};
+config.tokens ??= {};
+config.tokens[process.env.TOKEN] = {login: owner, scopes: ['repo', 'user']};
+config.github ??= {};
+config.github.users ??= [];
+if (!config.github.users.some(user => user.login === owner)) {
+  config.github.users.push({login: owner});
+}
+config.github.repos ??= [];
+let repo = config.github.repos.find(repo => repo.owner === owner && repo.name === name);
+if (!repo) {
+  repo = {owner, name, auto_init: true};
+  config.github.repos.push(repo);
+}
+repo.default_branch = process.env.BASE_BRANCH;
+fs.writeFileSync(destination, YAML.stringify(config));
+JS
 }
 
 # -----------------------------------------------------------------------------
@@ -118,7 +113,7 @@ emulator_api() {
   curl -fsS --max-time 2 -o /dev/null \
     -X "$method" \
     -H "Authorization: Bearer $TOKEN" \
-    "${API}${path}" \
+    "${GITHUB_EMULATOR_URL:-${API:-http://127.0.0.1:${EMULATE_PORT:-4001}}}${path}" \
     "$@"
 }
 
@@ -140,7 +135,7 @@ emulator_bootstrap_repository() {
 # ----------------------------------------------------------------------------
 # Step 1: Start the GitHub emulator
 # ----------------------------------------------------------------------------
-emulator_is_up() { curl -fsS -o /dev/null --max-time 2 "$API/repos/$REPO" -H "Authorization: Bearer $TOKEN" 2>/dev/null; }
+emulator_is_up() { curl -fsS -o /dev/null --max-time 2 "${GITHUB_EMULATOR_URL:-${API:-http://127.0.0.1:${EMULATE_PORT:-4001}}}/repos/$REPO" -H "Authorization: Bearer $TOKEN" 2>/dev/null; }
 
 emulator_start_emulator() {
   local seed_path="$1"
@@ -218,7 +213,7 @@ emulator_print_auth_instructions() {
 
 emulator_print_docker_instructions() {
   printf '  From Docker containers on your Mac: http://host.docker.internal:%s\n' \
-    "${HOST_PORT:-$EMULATE_PORT}"
+    "${EMULATOR_PORT:-$EMULATE_PORT}"
 
   if [[ -n "${GH_HOST:-}" ]]; then
     printf '  HTTPS proxy (Compose): https://%s inside the Docker network.\n' \
@@ -262,7 +257,7 @@ import sys
 from pathlib import Path
 
 source, destination = map(Path, sys.argv[1:])
-allowed = set("REPO TOKEN BASE_BRANCH CONFIG_FILE SEED_FILE MANIFEST_PATH OLD_VERSION EMULATE_BASE_URL PUBLIC_API BOOTSTRAP_REPOSITORY EMULATE_PORT EMU_HOST USE_PORTLESS GENERATED_SECRETS_FILE".split())
+allowed = set("REPO TOKEN BASE_BRANCH CONFIG_FILE SEED_FILE MANIFEST_PATH OLD_VERSION EMULATE_BASE_URL EMULATOR_PUBLIC_URL BOOTSTRAP_REPOSITORY EMULATE_PORT EMU_HOST USE_PORTLESS GENERATED_SECRETS_FILE".split())
 lines = []
 for number, line in enumerate(source.read_text().splitlines() if sys.argv[1] and source.exists() else [], 1):
     line = line.strip()
@@ -287,20 +282,20 @@ emulator_validate_seed() {
   [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ && -n "$TOKEN" ]] || return 1
   git check-ref-format "refs/heads/$BASE_BRANCH" >/dev/null || return 1
   [[ ! -e "$secrets_path" ]] || { printf 'Generated secrets destination already exists\n' >&2; return 1; }
-  env REPO="$REPO" TOKEN="$TOKEN" python3 - "$seed_path" <<'PYTHON' > "$seed_path.json"
-import json
-import sys
-from ruamel.yaml import YAML
-with open(sys.argv[1]) as stream:
-    config = YAML(typ="safe").load(stream)
-import os
-owner, name = os.environ["REPO"].split("/", 1)
-if os.environ["TOKEN"] not in config.get("tokens", {}):
-    raise SystemExit("Seed must contain the configured TOKEN")
-if not any(repo.get("owner") == owner and repo.get("name") == name for repo in config.get("github", {}).get("repos", [])):
-    raise SystemExit("Seed must contain the configured REPO")
-json.dump(config, sys.stdout)
-PYTHON
+  env REPO="$REPO" TOKEN="$TOKEN" node - "$seed_path" <<'JS' > "$seed_path.json"
+const fs = require('node:fs');
+const YAML = require('yaml');
+const config = YAML.parse(fs.readFileSync(process.argv[2], 'utf8'));
+if (!config || typeof config !== 'object') throw new Error('Invalid YAML seed');
+const [owner, name] = process.env.REPO.split('/', 2);
+if (!Object.hasOwn(config.tokens ?? {}, process.env.TOKEN)) {
+  throw new Error('Seed must contain the configured TOKEN');
+}
+if (!(config.github?.repos ?? []).some(repo => repo.owner === owner && repo.name === name)) {
+  throw new Error('Seed must contain the configured REPO');
+}
+process.stdout.write(JSON.stringify(config));
+JS
   node --input-type=module - "$(command -v emulate)" "$seed_path.json" <<'JS'
 import {readFileSync, realpathSync} from "node:fs";
 import {dirname, resolve} from "node:path";
@@ -343,7 +338,7 @@ emulator_main() {
   local REPO="${REPO:-moyarich/release-smoke-test}" BASE_BRANCH="${BASE_BRANCH:-main}"
   local MANIFEST_PATH="${MANIFEST_PATH:-packages/core/package.json}" OLD_VERSION="${OLD_VERSION:-1.0.0}"
   local CONFIG_FILE="${CONFIG_FILE:-}" SEED_FILE="${SEED_FILE:-}" SEED_SOURCE=""
-  local EMULATE_BASE_URL="${EMULATE_BASE_URL:-}" PUBLIC_API="${PUBLIC_API:-}"
+  local EMULATE_BASE_URL="${EMULATE_BASE_URL:-}" EMULATOR_PUBLIC_URL="${EMULATOR_PUBLIC_URL:-}"
   local BOOTSTRAP_REPOSITORY="${BOOTSTRAP_REPOSITORY:-1}" GENERATED_SECRETS_FILE="${GENERATED_SECRETS_FILE:-}"
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -355,7 +350,7 @@ emulator_main() {
       *) emulator_die "Unknown option: $1" ;;
     esac
   done
-  local API="${API:-http://127.0.0.1:$EMULATE_PORT}"
+  local GITHUB_EMULATOR_URL="${GITHUB_EMULATOR_URL:-http://127.0.0.1:$EMULATE_PORT}"
   local RESET="" BOLD="" RED="" GREEN="" YELLOW="" BLUE="" MAGENTA="" CYAN="" GRAY=""
   local run_dir="" seed_path secrets_path base_url emu_pid="" exit_code=0
   local template="$PWD/emulate.config.yaml" reload_requested=0 serial=0 generation=0
@@ -369,7 +364,7 @@ emulator_main() {
   trap 'exit 130' INT
   trap 'exit 143' TERM
   trap 'reload_requested=1' HUP
-  for key in REPO TOKEN BASE_BRANCH CONFIG_FILE SEED_FILE MANIFEST_PATH OLD_VERSION EMULATE_BASE_URL PUBLIC_API BOOTSTRAP_REPOSITORY EMULATE_PORT EMU_HOST USE_PORTLESS GENERATED_SECRETS_FILE; do
+  for key in REPO TOKEN BASE_BRANCH CONFIG_FILE SEED_FILE MANIFEST_PATH OLD_VERSION EMULATE_BASE_URL EMULATOR_PUBLIC_URL BOOTSTRAP_REPOSITORY EMULATE_PORT EMU_HOST USE_PORTLESS GENERATED_SECRETS_FILE; do
     printf '%s=%q\n' "$key" "${!key}" >> "$run_dir/base.env"
   done
   touch "$run_dir/active.env"
@@ -397,7 +392,7 @@ emulator_main() {
           kill "$emu_pid" 2>/dev/null || true
           wait "$emu_pid" 2>/dev/null || true
         elif emulator_is_up; then
-          emulator_warn "Emulator already responding at $API; reusing it without reload supervision"
+          emulator_warn "Emulator already responding at $GITHUB_EMULATOR_URL; reusing it without reload supervision"
           emulator_cleanup "" "$run_dir"
           trap - EXIT INT TERM HUP
           return
@@ -412,7 +407,7 @@ emulator_main() {
         mkdir -p "$control"
         chmod 700 "$control"
         printf '%s\n' "$$" > "$control/pid"
-        printf 'API=%q\nREPO=%q\nTOKEN=%q\n' "$API" "$REPO" "$TOKEN" > "$control/health.env.tmp"
+        printf 'GITHUB_EMULATOR_URL=%q\nREPO=%q\nTOKEN=%q\n' "$GITHUB_EMULATOR_URL" "$REPO" "$TOKEN" > "$control/health.env.tmp"
         chmod 600 "$control/health.env.tmp"
         mv "$control/health.env.tmp" "$control/health.env"
         printf '%s success\n' "$serial" > "$control/status.tmp"

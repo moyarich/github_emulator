@@ -32,10 +32,11 @@ function configuration(environment = process.env) {
     baseBranch: input("base-branch", "main", environment)
   };
 }
-function execute(command, args, { capture = false } = {}) {
+function execute(command, args, { capture = false, env } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit"
+      stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit",
+      env: env ?? process.env
     });
     let stdout = "";
     if (capture)
@@ -55,6 +56,7 @@ async function removeContainer(container, executeCommand = execute) {
 export {
   configuration as c,
   execute as e,
+  input as i,
   removeContainer as r,
   writeRunnerFile as w
 };
