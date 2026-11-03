@@ -351,7 +351,7 @@ export async function executeWorkflows(
       // Job steps require github.token; keep it as an act secret while
       // GitHub.com action downloads use anonymous host-side Git.
       "--secret",
-      `GITHUB_TOKEN=${token}`,
+      `GITHUB_TOKEN=${process.env.DISPATCH_GITHUB_TOKEN || token}`,
       "--env",
       `GH_TOKEN=${token}`,
       "--env",
@@ -411,7 +411,7 @@ export async function executeWorkflows(
             env: {
               ...process.env,
               // Do not pass the mock API token as GitHub.com clone credentials.
-              GITHUB_TOKEN: "",
+              GITHUB_TOKEN: process.env.DISPATCH_GITHUB_TOKEN || "",
               GH_TOKEN: "",
               GH_ENTERPRISE_TOKEN: "",
             },
