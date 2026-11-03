@@ -60,6 +60,20 @@ jobs:
           gh api "$API/repos/$REPO/issues/$issue" --jq .title
           release=$(gh api "$API/repos/$REPO/releases" --method POST -f tag_name=v1.0.0 -f name='Mock release' --jq .id)
           gh api "$API/repos/$REPO/releases/$release" --jq .tag_name
+  automatic-act-dispatch:
+    name: Automatic event-to-act dispatch integration
+    if: github.event_name != 'workflow_dispatch' || inputs.operation == 'test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install workflow discovery YAML parser
+        run: python3 -m pip install --user --break-system-packages 'ruamel.yaml'
+      - name: Simulate PR merge through dispatcher gateway
+        run: node tests/integration/automatic-act-dispatch.mjs
   draft:
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'release'
     permissions:
