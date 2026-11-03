@@ -32,6 +32,11 @@ export function githubAction(): Plugin {
         resolve(directory, "actions/setup-github-emulator/action.yml"),
         resolve(root, "action.yml"),
       );
+      cpSync(
+        resolve(directory, "scripts"),
+        resolve(output.dir, "scripts/action"),
+        { recursive: true },
+      );
       mkdirSync(resolve(root, "actions"), { recursive: true });
       copyFileSync(
         resolve(directory, "actions/emulate-pr-merge/action.yml"),
