@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { execute } from "./shared.js";
-import { composeArguments } from "./compose-services.js";
+import { composeArguments, stopServices } from "./compose-services.js";
 import type { ImportedPullRequest } from "./import-pr.js";
 
 /** Compose runtime paths for the isolated emulation environment. */
@@ -69,6 +69,13 @@ export async function startDispatcher(
       EMULATOR_PORT: "0",
       HTTPS_PORT: "0",
   };
-  await command("docker", [...composeArguments(project, files), "up", "--detach", "--wait", "--no-build"], { env: environment });
+  try {
+    await command("docker", [...composeArguments(project, files), "up", "--detach", "--wait", "--no-build"], { env: environment });
+  } catch (error) {
+    await stopServices(project, files, command, environment).catch((cleanupError) => {
+      console.error("Could not clean up partially started services:", cleanupError);
+    });
+    throw error;
+  }
   return { project, files, image, environment };
 }
