@@ -40,7 +40,7 @@ RUN npm install --no-audit --no-fund emulate@0.12.3 portless@0.15.11
 # Install the standalone act CLI; act-latest supplies its runner environment.
 RUN architecture="$(uname -m)" \
   && case "$architecture" in aarch64|arm64) architecture=arm64 ;; x86_64) architecture=x86_64 ;; *) exit 1 ;; esac \
-  && curl -fsSL "https://github.com/nektos/act/releases/download/v0.2.89/act_Linux_${architecture}.tar.gz" \
+  && curl -fsSL "https://github.com/nektos/act/releases/download/v0.2.95/act_Linux_${architecture}.tar.gz" \
     | tar -xz -C /usr/local/bin act
 ENV PATH="/app/node_modules/.bin:${PATH}"
 
