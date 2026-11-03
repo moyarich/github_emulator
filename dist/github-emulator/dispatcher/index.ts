@@ -378,6 +378,10 @@ export async function executeWorkflows(
     // act resolves all external actions and reusable workflows itself.
     // Only the emulated target repository is mounted for checkout.
     args.push("--container-options", `--volume ${workspace}:/emulator-source:ro${volume ? ` --volume ${volume}:/proxy-data:ro` : ""}`);
+    if (process.env.DISPATCH_TEST_API_URL) {
+      args.push("--env", `MOCK_API_URL=${process.env.DISPATCH_TEST_API_URL}`);
+      args.push("--container-options", "--add-host=host.docker.internal:host-gateway");
+    }
     const repository = process.env.REPO || process.env.DISPATCH_REPOSITORY;
     if (!repository) throw new Error("Missing target repository");
     args.push("--env", "GIT_CONFIG_COUNT=3",
