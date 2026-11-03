@@ -11,7 +11,7 @@ import { prepareMockPullRequest } from "./prepare-mock-pr.js";
 import { composeArguments, readServiceLogs, stopServices } from "./compose-services.js";
 import { verifyDraftReleases } from "./verify-releases.js";
 
-interface EmulationState { project: string; files: string[]; }
+interface EmulationState { project: string; files: string[]; environment?: NodeJS.ProcessEnv; }
 
 /** Run a real PR checkout entirely against the isolated mock GitHub services. */
 export async function emulatePrMerge(environment: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -21,7 +21,7 @@ export async function emulatePrMerge(environment: NodeJS.ProcessEnv = process.en
   if (!temp) throw new Error("RUNNER_TEMP is required");
   const distribution = dirname(fileURLToPath(import.meta.url));
   const root = resolve(distribution, "../..");
-  const project = `pr-merge-${randomUUID()}`;
+  const project = `pr-merge-${randomUUID().slice(0, 12)}`;
   const state: EmulationState = { project, files: [] };
   const statePath = join(temp, "pr-merge-state.json");
   writeFileSync(statePath, JSON.stringify(state), { mode: 0o600 });
@@ -29,16 +29,18 @@ export async function emulatePrMerge(environment: NodeJS.ProcessEnv = process.en
   try {
     const source = await importPullRequest(config, temp);
     const actDirectory = await setupSandbox(distribution, temp, project);
-    process.env.PATH = `${actDirectory}:${process.env.PATH ?? ""}`;
-    const runtime = await startDispatcher(source, root, temp, project, config.githubToken);
+    // Pass the installed act directory only to the isolated subprocesses.
+    const runtime = await startDispatcher(source, root, temp, project, config.githubToken, config.token);
     state.files = runtime.files;
+    state.environment = { ...runtime.environment, PATH: `${actDirectory}:${runtime.environment.PATH ?? ""}` };
     writeFileSync(statePath, JSON.stringify(state), { mode: 0o600 });
+    runtime.environment = state.environment;
     await prepareMockPullRequest(source, runtime, config.token);
     await execute("docker", [
       ...composeArguments(project, runtime.files), "exec", "-T",
       "-e", `REPO=${config.repository}`, "-e", `TOKEN=${config.token}`,
       "github-dispatcher", "node", "/emulator-checkout/dist/github-emulator/dispatch-merge-event.js",
-    ]);
+    ], { env: runtime.environment });
     const releases = await verifyDraftReleases(config.repository, config.token);
     if (environment.GITHUB_STEP_SUMMARY)
       appendFileSync(environment.GITHUB_STEP_SUMMARY,
@@ -47,7 +49,7 @@ export async function emulatePrMerge(environment: NodeJS.ProcessEnv = process.en
   } catch (error) {
     if (state.files.length) {
       try {
-        const logs = await readServiceLogs(project, state.files);
+        const logs = await readServiceLogs(project, state.files, execute, state.environment);
         writeFileSync(join(temp, "pr-merge.log"), logs, { mode: 0o600 });
       } catch (diagnosticError) { console.error("Could not capture diagnostics:", diagnosticError); }
     }
