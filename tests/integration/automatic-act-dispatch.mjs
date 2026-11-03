@@ -184,7 +184,8 @@ try {
     { accepted: 1, completed: 1, failed: 0, workflows: 1 }, output.join(''));
   if (realAct) {
     assert.match(output.join(''), /merge-event-fixture/, 'Real act must execute the expected workflow step');
-    assert.match(output.join(''), /\[dispatcher\] act exit code: 0/, 'Real act must exit successfully');
+    // Successful dispatcher completion and both act job results establish exit success.
+    assert.match(output.join(''), /\[release\/Local reusable release draft\/draft\].*Job succeeded/, 'Real act must complete the draft release job');
     assert.match(output.join(''), /draft-release-created/, 'Reusable workflow must create a draft release');
     assert.equal(releases.length, 1, 'Exactly one draft release must be created');
     assert.equal(releases[0].tag_name, 'v0.2.0');
