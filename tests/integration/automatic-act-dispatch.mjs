@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, writeFile, readFile, rm, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, appendFile, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
@@ -12,6 +12,11 @@ const token = 'local-test-token';
 const realAct = process.env.REAL_ACT === '1';
 let dispatcher;
 let upstream;
+let result = 'Failed';
+let failure = '';
+let status;
+const started = Date.now();
+const output = [];
 try {
   const workspace = join(root, 'workspace');
   const bin = join(root, 'bin');
@@ -80,7 +85,6 @@ try {
       server.close(() => resolvePort(selected));
     });
   });
-  const output = [];
   dispatcher = spawn(process.execPath, ['--experimental-strip-types', resolve('dist/github-emulator/dispatcher/index.ts')], {
     env: { ...process.env, PATH: realAct ? process.env.PATH : `${bin}:${process.env.PATH}`, ACT_CALLS: calls,
       DISPATCH_ENABLED: '1', DISPATCH_WORKSPACE: workspace, DISPATCH_WORKFLOWS: '.github/workflows',
@@ -118,7 +122,6 @@ try {
     method: 'PUT', headers, body: JSON.stringify({ merge_method: 'merge' }),
   });
   assert.equal(merge.status, 200);
-  let status;
   while (Date.now() < deadline) {
     const response = await fetch(`${base}/_dispatcher/status`, { headers });
     assert.equal(response.status, 200);
@@ -141,8 +144,54 @@ try {
     assert.ok(recorded[0].args.includes(join(workspace, '.github/workflows/merge.yml')));
     assert.ok(!recorded[0].args.includes(join(workspace, '.github/workflows/ignore.yml')));
   }
+  result = 'Passed';
   console.log(realAct ? 'PASS: real act executed the automatically dispatched workflow' : 'PASS: mock PR merge automatically dispatched exactly one matching workflow to act');
+} catch (error) {
+  failure = error instanceof Error ? error.message : String(error);
+  throw error;
 } finally {
+  if (realAct && process.env.GITHUB_STEP_SUMMARY) {
+    const log = output.join('');
+    const jobLines = [...log.matchAll(/\[([^\]\n]+)\]\s+🏁\s+Job succeeded/g)].map(match => match[1]);
+    const failedJobs = [...log.matchAll(/\[([^\]\n]+)\].*Job failed/g)].map(match => match[1]);
+    const exitCodes = [...log.matchAll(/\[dispatcher\] act exit code: (\S+)/g)].map(match => match[1]);
+    const duration = ((Date.now() - started) / 1000).toFixed(1);
+    const actVersion = (() => {
+      try { return execFileSync('act', ['--version'], { encoding: 'utf8' }).trim(); }
+      catch { return 'Unavailable'; }
+    })();
+    const jobUrl = process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
+      ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+      : '';
+    const summary = [
+      '## Real `act` merge-event integration',
+      '',
+      `**Result:** ${result === 'Passed' ? '✅ Passed' : '❌ Failed'}`,
+      '',
+      '| Field | Value |',
+      '| --- | --- |',
+      '| Event | `pull_request.closed` |',
+      '| Fixture workflow | `merge.yml` |',
+      `| Execution engine | ${actVersion.replaceAll('|', '\\|')} |`,
+      '| Runner image | `node:24-bookworm` |',
+      `| Workflows executed | ${status?.workflows ?? 'Unknown'} |`,
+      `| Dispatch failures | ${status?.failed ?? 'Unknown'} |`,
+      `| act exit codes | ${exitCodes.length ? exitCodes.map(code => `\`${code}\``).join(', ') : 'Not observed'} |`,
+      `| Duration | ${duration}s |`,
+      '',
+      '### Executed jobs',
+      '',
+      '| Job | Result |',
+      '| --- | --- |',
+      ...jobLines.map(name => `| ${name.replaceAll('|', '\\|')} | ✅ Passed |`),
+      ...failedJobs.map(name => `| ${name.replaceAll('|', '\\|')} | ❌ Failed |`),
+      ...(!jobLines.length && !failedJobs.length ? ['| No completed job recorded | ⚠️ Unknown |'] : []),
+      '',
+      ...(failure ? ['### Failure', '', `\`${failure.replaceAll('`', "'").slice(0, 1500)}\``, ''] : []),
+      ...(jobUrl ? [`[View complete execution logs](${jobUrl})`, ''] : []),
+    ].join('\n');
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+  }
   if (dispatcher && dispatcher.exitCode === null && dispatcher.signalCode === null) {
     const exited = once(dispatcher, 'exit');
     dispatcher.kill('SIGTERM');
