@@ -32,9 +32,16 @@ export async function emulatePrMerge(environment: NodeJS.ProcessEnv = process.en
     // Pass the installed act directory only to the isolated subprocesses.
     const runtime = await startDispatcher(source, root, temp, project, config.githubToken, config.token);
     state.files = runtime.files;
-    state.environment = { ...runtime.environment, PATH: `${actDirectory}:${runtime.environment.PATH ?? ""}` };
+    state.environment = {
+      COMPOSE_PROJECT_NAME: project,
+      DISPATCH_WORKSPACE: source.workspace,
+      REPO: source.repository,
+      BASE_BRANCH: source.baseBranch,
+      EMULATOR_PORT: "0",
+      HTTPS_PORT: "0",
+    };
     writeFileSync(statePath, JSON.stringify(state), { mode: 0o600 });
-    runtime.environment = state.environment;
+    runtime.environment = { ...runtime.environment, PATH: `${actDirectory}:${runtime.environment.PATH ?? ""}` };
     await prepareMockPullRequest(source, runtime, config.token);
     await execute("docker", [
       ...composeArguments(project, runtime.files), "exec", "-T",
