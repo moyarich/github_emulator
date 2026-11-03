@@ -417,9 +417,11 @@ export async function executeWorkflows(
             },
           });
           child.once("error", reject);
-          child.once("exit", (code) =>
-            code === 0 ? accept() : reject(new Error(`act exited ${code}`)),
-          );
+          child.once("exit", (code, signal) => {
+            console.log(`[dispatcher] act exit code: ${code === null ? "null" : code}${signal ? ` (signal: ${signal})` : ""}`);
+            if (code === 0) accept();
+            else reject(new Error(`act exited ${code}${signal ? ` (signal: ${signal})` : ""}`));
+          });
         });
       } catch (error) {
         errors.push(error);
