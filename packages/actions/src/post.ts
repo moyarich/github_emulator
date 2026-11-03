@@ -70,6 +70,7 @@ export async function run(
   command: typeof execute = execute,
 ): Promise<void> {
   const errors: Error[] = [];
+  let cleanupSucceeded = false;
   let diagnostics: string | undefined;
   try {
     diagnostics = await captureDiagnostics(environment, command);
@@ -80,6 +81,7 @@ export async function run(
   } finally {
     try {
       await cleanup(environment, command);
+      cleanupSucceeded = true;
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
       console.error(`Emulator cleanup failed: ${failure.message}`);
@@ -94,7 +96,7 @@ export async function run(
         [
           "### GitHub emulator post-job",
           diagnostics ? `- Diagnostics: \`${diagnostics}\`` : "- Diagnostics: unavailable",
-          `- Cleanup: ${errors.some((e) => e.message.includes("docker")) ? "check logs" : "attempted"}`,
+          `- Cleanup: ${cleanupSucceeded ? "completed" : "failed"}`,
           "",
         ].join("\n") + "\n",
       );
