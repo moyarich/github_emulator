@@ -112,11 +112,12 @@ runs:
       if: inputs.pr-number != ''
       env:
         GH_TOKEN: ${{ inputs.github-token }}
+        ACTION_PATH: ${{ github.action_path }}
       shell: bash
       run: |
         set -euo pipefail
-        docker build -f dist/github-emulator/docker/Dockerfile --target mock-github -t "github-emulator-test:$COMPOSE_PROJECT_NAME" dist/github-emulator
-        docker compose -f dist/github-emulator/compose.yaml build github-proxy
+        docker build -f "$ACTION_PATH/dist/github-emulator/docker/Dockerfile" --target mock-github -t "github-emulator-test:$COMPOSE_PROJECT_NAME" "$ACTION_PATH/dist/github-emulator"
+        docker compose -f "$ACTION_PATH/dist/github-emulator/compose.yaml" build github-proxy
         mkdir -p "$RUNNER_TEMP/act"
         gh release download v0.2.95 --repo nektos/act --pattern act_Linux_x86_64.tar.gz --dir "$RUNNER_TEMP/act"
         tar xzf "$RUNNER_TEMP/act/act_Linux_x86_64.tar.gz" -C "$RUNNER_TEMP/act" act
@@ -124,6 +125,8 @@ runs:
     - name: Start isolated mock GitHub and event dispatcher
       if: inputs.pr-number != ''
       shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
       run: |
         export GITHUB_DEPENDENCY_TOKEN="${{ inputs.github-token }}"
         cat > "$RUNNER_TEMP/mock-service.yaml" <<'YAML'
@@ -132,7 +135,7 @@ runs:
             image: github-emulator-test:${COMPOSE_PROJECT_NAME}
             volumes:
               - ${DISPATCH_WORKSPACE}:${DISPATCH_WORKSPACE}:ro
-              - ${GITHUB_WORKSPACE}:/emulator-checkout:ro
+              - ${ACTION_PATH}:/emulator-checkout:ro
               - ${RUNNER_TEMP}:${RUNNER_TEMP}
             environment:
               BOOTSTRAP_REPOSITORY: "0"
@@ -152,7 +155,7 @@ runs:
               DISPATCH_WORKFLOWS: .github/workflows
               DISPATCH_GITHUB_TOKEN: ${GITHUB_DEPENDENCY_TOKEN}
         YAML
-        export COMPOSE_FILE="$GITHUB_WORKSPACE/dist/github-emulator/compose.yaml:$GITHUB_WORKSPACE/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml"
+        export COMPOSE_FILE="$ACTION_PATH/dist/github-emulator/compose.yaml:$ACTION_PATH/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml"
         echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$GITHUB_ENV"
         docker compose up --detach --wait --no-build
     - name: Prepare emulated merged PR
