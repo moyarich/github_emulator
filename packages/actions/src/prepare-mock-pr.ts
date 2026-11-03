@@ -29,6 +29,6 @@ export async function prepareMockPullRequest(
     for (const [key, value] of Object.entries({ ...environment, PREPARE_PHASE: phase }))
       args.push("--env", `${key}=${value}`);
     args.push("github-emulator", "node", "/emulator-checkout/dist/github-emulator/prepare-workflow.js");
-    await command("docker", args);
+    await command("docker", args, { env: runtime.environment });
   }
 }
