@@ -33,6 +33,11 @@ try {
     '    runs-on: ubuntu-latest',
     '    steps:',
     '      - run: echo merge-event-fixture',
+    ...(realAct ? [
+      '  release:',
+      '    needs: verify',
+      '    uses: ./.github/workflows/reusable-release.yml',
+    ] : []),
     '',
   ].join('\n'));
   await writeFile(join(workspace, '.github/workflows/ignore.yml'), [
@@ -47,6 +52,19 @@ try {
     '      - run: exit 1',
     '',
   ].join('\n'));
+  if (realAct) await writeFile(join(workspace, '.github/workflows/reusable-release.yml'), [
+    'name: Local reusable release draft',
+    'on: workflow_call',
+    'jobs:',
+    '  draft:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - name: Create isolated draft release',
+    '        run: |',
+    '          node -e "fetch(process.env.MOCK_API_URL + \u0027/repos/fixture/event-dispatch/releases\u0027, { method: \u0027POST\u0027, headers: { \u0027Content-Type\u0027: \u0027application/json\u0027 }, body: JSON.stringify({ tag_name: \u0027v0.2.0\u0027, name: \u0027Mock release\u0027, draft: true }) }).then(r => { if (!r.ok) process.exit(1); console.log(\u0027draft-release-created\u0027); }).catch(e => { console.error(e); process.exit(1); })"',
+    '',
+  ].join('\n'));
+  const releases = [];
   const calls = join(root, 'act-calls.jsonl');
   const fakeAct = join(bin, 'act');
   if (!realAct) await writeFile(fakeAct, '#!/usr/bin/env node\n' +
@@ -68,13 +86,21 @@ try {
     const json = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
     if (path === `/repos/${repo}`) return json(200, { full_name: repo, default_branch: 'main' });
     if (path === `/repos/${repo}/pulls/7` && req.method === 'GET') return json(200, pr);
+    if (path === `/repos/${repo}/releases` && req.method === 'POST') {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const release = JSON.parse(Buffer.concat(chunks).toString());
+      if (!release.draft) return json(422, { message: 'Only draft releases allowed' });
+      releases.push(release);
+      return json(201, { id: releases.length, ...release });
+    }
     if (path === `/repos/${repo}/pulls/7/merge` && req.method === 'PUT') {
       pr = { ...pr, merged: true, state: 'closed' };
       return json(200, { merged: true, sha: 'fixture-merge-sha' });
     }
     json(404, { message: 'Not found' });
   });
-  upstream.listen(0, '127.0.0.1');
+  upstream.listen(0, '0.0.0.0');
   await once(upstream, 'listening');
   const upstreamPort = upstream.address().port;
   const port = await new Promise((resolvePort, reject) => {
@@ -90,7 +116,7 @@ try {
       DISPATCH_ENABLED: '1', DISPATCH_WORKSPACE: workspace, DISPATCH_WORKFLOWS: '.github/workflows',
       DISPATCH_UPSTREAM: `http://127.0.0.1:${upstreamPort}`, DISPATCH_PORT: String(port),
       REPO: repo, TOKEN: token, DISPATCH_SOURCE_SHA: 'fixture-merge-sha',
-      ...(realAct ? { DISPATCH_NETWORK: process.env.DISPATCH_NETWORK || 'bridge', DISPATCH_IMAGE: 'node:24-bookworm' } : {}) },
+      ...(realAct ? { DISPATCH_NETWORK: process.env.DISPATCH_NETWORK || 'bridge', DISPATCH_IMAGE: 'node:24-bookworm', DISPATCH_TEST_API_URL: `http://host.docker.internal:${upstreamPort}` } : {}) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   dispatcher.stdout.on('data', b => {
@@ -134,6 +160,10 @@ try {
   if (realAct) {
     assert.match(output.join(''), /merge-event-fixture/, 'Real act must execute the expected workflow step');
     assert.match(output.join(''), /\[dispatcher\] act exit code: 0/, 'Real act must exit successfully');
+    assert.match(output.join(''), /draft-release-created/, 'Reusable workflow must create a draft release');
+    assert.equal(releases.length, 1, 'Exactly one draft release must be created');
+    assert.equal(releases[0].tag_name, 'v0.2.0');
+    assert.equal(releases[0].draft, true);
   } else {
     const recorded = (await readFile(calls, 'utf8')).trim().split('\n').map(JSON.parse);
     assert.equal(recorded.length, 1, 'Exactly one matching workflow should invoke act');
