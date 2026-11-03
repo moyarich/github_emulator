@@ -14,8 +14,8 @@ export default defineConfig({
     minify: false,
     lib: {
       entry: {
-        main: resolve(directory, "src/start-emulator.ts"),
-        post: resolve(directory, "src/finalize-emulator.ts"),
+        "start-emulator": resolve(directory, "src/start-emulator.ts"),
+        "finalize-emulator": resolve(directory, "src/finalize-emulator.ts"),
         "prepare-workflow": resolve(directory, "src/prepare-workflow.ts"),
       },
       formats: ["es"],
