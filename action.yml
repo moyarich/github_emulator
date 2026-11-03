@@ -157,6 +157,8 @@ runs:
         YAML
         export COMPOSE_FILE="$ACTION_PATH/dist/github-emulator/compose.yaml:$ACTION_PATH/dist/github-emulator/compose.dispatcher.yaml:$RUNNER_TEMP/mock-service.yaml"
         echo "COMPOSE_FILE=$COMPOSE_FILE" >> "$GITHUB_ENV"
+        echo "ACTION_PATH=$ACTION_PATH" >> "$GITHUB_ENV"
+        echo "GITHUB_DEPENDENCY_TOKEN=$GITHUB_DEPENDENCY_TOKEN" >> "$GITHUB_ENV"
         docker compose up --detach --wait --no-build
     - name: Prepare emulated merged PR
       if: inputs.pr-number != ''
