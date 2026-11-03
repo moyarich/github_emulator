@@ -348,7 +348,8 @@ export async function executeWorkflows(
       file,
       "--github-instance",
       "github.com",
-      "--secret",
+      // Keep mock credentials out of act dependency cloning.
+      "--env",
       `GITHUB_TOKEN=${token}`,
       "--env",
       `GH_TOKEN=${token}`,
